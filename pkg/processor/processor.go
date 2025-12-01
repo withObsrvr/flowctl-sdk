@@ -4,16 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/withObsrvr/flowctl-sdk/pkg/flowctl"
+	flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
 	"google.golang.org/grpc"
-	// "google.golang.org/grpc/reflection"
-	
-	// We'll mock these for now - they should be imported from the flow-proto module
-	// processorpb "github.com/withObsrvr/flow-proto/proto/processor"
+	"google.golang.org/grpc/reflection"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 // Error types
@@ -42,6 +42,8 @@ type Processor interface {
 
 // StandardProcessor implements the Processor interface
 type StandardProcessor struct {
+	flowctlv1.UnimplementedProcessorServiceServer
+
 	config     *Config
 	registry   *HandlerRegistry
 	server     *grpc.Server
@@ -139,10 +141,10 @@ func (p *StandardProcessor) Start(ctx context.Context) error {
 	p.server = grpc.NewServer()
 
 	// Register the processor service
-	// processorpb.RegisterProcessorServiceServer(p.server, p)
+	flowctlv1.RegisterProcessorServiceServer(p.server, p)
 
 	// Enable reflection for development
-	// reflection.Register(p.server)
+	reflection.Register(p.server)
 
 	// Start the server
 	go func() {
@@ -204,9 +206,8 @@ func (p *StandardProcessor) Metrics() flowctl.Metrics {
 	return p.metrics
 }
 
-/* 
 // Process implements the gRPC Process method
-func (p *StandardProcessor) Process(stream processorpb.ProcessorService_ProcessServer) error {
+func (p *StandardProcessor) Process(stream flowctlv1.ProcessorService_ProcessServer) error {
 	ctx := stream.Context()
 
 	for {
@@ -216,75 +217,89 @@ func (p *StandardProcessor) Process(stream processorpb.ProcessorService_ProcessS
 		case <-p.stopCh:
 			return ErrProcessorStopped
 		default:
-			// Receive a message
-			req, err := stream.Recv()
+			// Receive an event
+			event, err := stream.Recv()
+			if err == io.EOF {
+				return nil
+			}
 			if err != nil {
-				// Handle end of stream or error
 				return err
 			}
 
-			// Process the message
+			// Process the event asynchronously
 			p.processingWg.Add(1)
-			go func(eventData *processorpb.DataMessage) {
+			go func(inputEvent *flowctlv1.Event) {
 				defer p.processingWg.Done()
 
 				startTime := time.Now()
-				
+
 				// Find handler for the event type
-				eventType := eventData.Metadata["event_type"]
-				handlers := p.registry.GetHandlersForType(eventType)
-				
+				handlers := p.registry.GetHandlersForType(inputEvent.Type)
+
 				if len(handlers) == 0 {
 					p.metrics.IncrementErrorCount()
-					fmt.Printf("No handler for event type: %s\n", eventType)
+					fmt.Printf("No handler for event type: %s\n", inputEvent.Type)
 					return
 				}
-				
-				// Use first handler for now, could implement more complex routing
+
+				// Use first handler for now (could implement more complex routing)
 				handler := handlers[0]
 
 				// Process the event
-				output, outMetadata, err := handler.Handle(ctx, eventData.Payload, eventData.Metadata)
-				
+				outputEvent, err := handler.Handle(ctx, inputEvent)
+
 				// Record metrics
 				p.metrics.RecordProcessingLatency(float64(time.Since(startTime).Milliseconds()))
 				p.metrics.IncrementProcessedCount()
-				
+
 				if err != nil {
 					p.metrics.IncrementErrorCount()
 					fmt.Printf("Error processing event: %v\n", err)
 					return
 				}
-				
+
+				// Skip nil events (processor chose to filter this event)
+				if outputEvent == nil {
+					return
+				}
+
 				p.metrics.IncrementSuccessCount()
 
 				// Send the response
-				resp := &processorpb.DataMessage{
-					Payload:  output,
-					Metadata: outMetadata,
-				}
-				
-				if err := stream.Send(resp); err != nil {
+				if err := stream.Send(outputEvent); err != nil {
 					fmt.Printf("Error sending response: %v\n", err)
 				}
-			}(req)
+			}(event)
 		}
 	}
 }
 
-// GetCapabilities implements the gRPC GetCapabilities method
-func (p *StandardProcessor) GetCapabilities(ctx context.Context, req *processorpb.CapabilitiesRequest) (*processorpb.CapabilitiesResponse, error) {
+// GetInfo implements the gRPC GetInfo method
+func (p *StandardProcessor) GetInfo(ctx context.Context, _ *emptypb.Empty) (*flowctlv1.ComponentInfo, error) {
 	inputTypes := p.registry.GetAllInputTypes()
 	outputTypes := p.registry.GetAllOutputTypes()
-	
-	return &processorpb.CapabilitiesResponse{
-		ProcessorId:      p.config.ID,
+
+	return &flowctlv1.ComponentInfo{
+		Id:               p.config.ID,
 		Name:             p.config.Name,
 		Description:      p.config.Description,
 		Version:          p.config.Version,
+		Type:             flowctlv1.ComponentType_COMPONENT_TYPE_PROCESSOR,
 		InputEventTypes:  inputTypes,
 		OutputEventTypes: outputTypes,
-		MaxConcurrent:    int32(p.config.MaxConcurrent),
+		Endpoint:         p.config.Endpoint,
+		Metadata: map[string]string{
+			"max_concurrent": fmt.Sprintf("%d", p.config.MaxConcurrent),
+		},
 	}, nil
 }
-*/
+
+// HealthCheck implements the gRPC HealthCheck method
+func (p *StandardProcessor) HealthCheck(ctx context.Context, req *flowctlv1.HealthCheckRequest) (*flowctlv1.HealthCheckResponse, error) {
+	status := p.health.GetHealth()
+
+	return &flowctlv1.HealthCheckResponse{
+		Status:  flowctlv1.HealthStatus(flowctlv1.HealthStatus_value[string(status)]),
+		Message: fmt.Sprintf("Processor %s is %s", p.config.ID, status),
+	}, nil
+}

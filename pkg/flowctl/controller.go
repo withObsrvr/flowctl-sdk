@@ -7,11 +7,9 @@ import (
 	"sync"
 	"time"
 
+	flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	
-	// We'll mock these for now - they should be imported from the flow-proto module
-	// controlplanepb "github.com/withObsrvr/flow-proto/proto/controlplane"
 )
 
 // DefaultHeartbeatInterval is the default interval for sending heartbeats
@@ -28,7 +26,7 @@ type StandardController struct {
 	config           Config
 	serviceID        string
 	conn             *grpc.ClientConn
-	// client           controlplanepb.ControlPlaneClient
+	client           flowctlv1.ControlPlaneServiceClient
 	stopHeartbeat    chan struct{}
 	heartbeatRunning bool
 	metrics          Metrics
@@ -77,7 +75,7 @@ func (c *StandardController) Register(ctx context.Context) error {
 	c.conn = conn
 
 	// Create the client
-	// c.client = controlplanepb.NewControlPlaneClient(conn)
+	c.client = flowctlv1.NewControlPlaneServiceClient(conn)
 
 	// Register based on service type
 	switch c.config.ServiceType {
@@ -94,79 +92,100 @@ func (c *StandardController) Register(ctx context.Context) error {
 
 // registerProcessor registers a processor with the flowctl control plane
 func (c *StandardController) registerProcessor(ctx context.Context) error {
-	/*
-	// Mocked for now - should use actual proto implementation
-	request := &controlplanepb.RegisterProcessorRequest{
-		ProcessorId: c.serviceID,
+	// Build component info from metadata
+	componentInfo := &flowctlv1.ComponentInfo{
+		Id:          c.serviceID,
+		Name:        c.config.Metadata["processor_name"],
+		Description: c.config.Metadata["processor_description"],
+		Version:     c.config.Metadata["processor_version"],
+		Type:        flowctlv1.ComponentType_COMPONENT_TYPE_PROCESSOR,
 		Endpoint:    c.config.Metadata["endpoint"],
 		Metadata:    c.config.Metadata,
 	}
 
-	resp, err := c.client.RegisterProcessor(ctx, request)
+	request := &flowctlv1.RegisterRequest{
+		Component: componentInfo,
+	}
+
+	resp, err := c.client.RegisterComponent(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to register processor: %w", err)
 	}
 
-	// Update service ID if provided by control plane
-	if resp.ProcessorId != "" {
-		c.serviceID = resp.ProcessorId
-	}
-	*/
+	fmt.Printf("Registered processor with ID: %s to flowctl at %s (assigned ID: %s)\n",
+		c.serviceID, c.config.Endpoint, resp.ServiceId)
 
-	// Mock implementation
-	fmt.Printf("Registered processor with ID: %s to flowctl at %s\n", c.serviceID, c.config.Endpoint)
+	// Update service ID if provided by control plane
+	if resp.ServiceId != "" {
+		c.serviceID = resp.ServiceId
+	}
+
 	return nil
 }
 
 // registerSource registers a source with the flowctl control plane
 func (c *StandardController) registerSource(ctx context.Context) error {
-	/*
-	// Mocked for now - should use actual proto implementation
-	request := &controlplanepb.RegisterSourceRequest{
-		SourceId:  c.serviceID,
-		Endpoint:  c.config.Metadata["endpoint"],
-		Metadata:  c.config.Metadata,
+	// Build component info from metadata
+	componentInfo := &flowctlv1.ComponentInfo{
+		Id:          c.serviceID,
+		Name:        c.config.Metadata["source_name"],
+		Description: c.config.Metadata["source_description"],
+		Version:     c.config.Metadata["source_version"],
+		Type:        flowctlv1.ComponentType_COMPONENT_TYPE_SOURCE,
+		Endpoint:    c.config.Metadata["endpoint"],
+		Metadata:    c.config.Metadata,
 	}
 
-	resp, err := c.client.RegisterSource(ctx, request)
+	request := &flowctlv1.RegisterRequest{
+		Component: componentInfo,
+	}
+
+	resp, err := c.client.RegisterComponent(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to register source: %w", err)
 	}
 
-	// Update service ID if provided by control plane
-	if resp.SourceId != "" {
-		c.serviceID = resp.SourceId
-	}
-	*/
+	fmt.Printf("Registered source with ID: %s to flowctl at %s (assigned ID: %s)\n",
+		c.serviceID, c.config.Endpoint, resp.ServiceId)
 
-	// Mock implementation
-	fmt.Printf("Registered source with ID: %s to flowctl at %s\n", c.serviceID, c.config.Endpoint)
+	// Update service ID if provided by control plane
+	if resp.ServiceId != "" {
+		c.serviceID = resp.ServiceId
+	}
+
 	return nil
 }
 
 // registerConsumer registers a consumer with the flowctl control plane
 func (c *StandardController) registerConsumer(ctx context.Context) error {
-	/*
-	// Mocked for now - should use actual proto implementation
-	request := &controlplanepb.RegisterConsumerRequest{
-		ConsumerId: c.serviceID,
-		Endpoint:   c.config.Metadata["endpoint"],
-		Metadata:   c.config.Metadata,
+	// Build component info from metadata
+	componentInfo := &flowctlv1.ComponentInfo{
+		Id:          c.serviceID,
+		Name:        c.config.Metadata["consumer_name"],
+		Description:c.config.Metadata["consumer_description"],
+		Version:     c.config.Metadata["consumer_version"],
+		Type:        flowctlv1.ComponentType_COMPONENT_TYPE_CONSUMER,
+		Endpoint:    c.config.Metadata["endpoint"],
+		Metadata:    c.config.Metadata,
 	}
 
-	resp, err := c.client.RegisterConsumer(ctx, request)
+	request := &flowctlv1.RegisterRequest{
+		Component: componentInfo,
+	}
+
+	resp, err := c.client.RegisterComponent(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to register consumer: %w", err)
 	}
 
-	// Update service ID if provided by control plane
-	if resp.ConsumerId != "" {
-		c.serviceID = resp.ConsumerId
-	}
-	*/
+	fmt.Printf("Registered consumer with ID: %s to flowctl at %s (assigned ID: %s)\n",
+		c.serviceID, c.config.Endpoint, resp.ServiceId)
 
-	// Mock implementation
-	fmt.Printf("Registered consumer with ID: %s to flowctl at %s\n", c.serviceID, c.config.Endpoint)
+	// Update service ID if provided by control plane
+	if resp.ServiceId != "" {
+		c.serviceID = resp.ServiceId
+	}
+
 	return nil
 }
 
@@ -319,68 +338,41 @@ func (c *StandardController) sendHeartbeat(ctx context.Context) {
 
 // sendProcessorHeartbeat sends a processor heartbeat
 func (c *StandardController) sendProcessorHeartbeat(ctx context.Context, metrics map[string]interface{}) {
-	/*
-	// Mocked for now - should use actual proto implementation
-	request := &controlplanepb.ProcessorHeartbeatRequest{
-		ProcessorId: c.serviceID,
-		Timestamp:   timestamppb.Now(),
-		Metrics:     protoMetrics,
-		Status:      string(c.healthServer.GetHealth()),
-	}
-
-	_, err := c.client.ProcessorHeartbeat(ctx, request)
-	if err != nil {
-		fmt.Printf("Error sending processor heartbeat: %v\n", err)
-		return
-	}
-	*/
-
-	// Mock implementation
-	fmt.Printf("Sent processor heartbeat for ID %s with %d metrics\n", c.serviceID, len(metrics))
+	c.sendHeartbeatToControlPlane(ctx, metrics)
 }
 
 // sendSourceHeartbeat sends a source heartbeat
 func (c *StandardController) sendSourceHeartbeat(ctx context.Context, metrics map[string]interface{}) {
-	/*
-	// Mocked for now - should use actual proto implementation
-	request := &controlplanepb.SourceHeartbeatRequest{
-		SourceId:  c.serviceID,
-		Timestamp: timestamppb.Now(),
-		Metrics:   protoMetrics,
-		Status:    string(c.healthServer.GetHealth()),
-	}
-
-	_, err := c.client.SourceHeartbeat(ctx, request)
-	if err != nil {
-		fmt.Printf("Error sending source heartbeat: %v\n", err)
-		return
-	}
-	*/
-
-	// Mock implementation
-	fmt.Printf("Sent source heartbeat for ID %s with %d metrics\n", c.serviceID, len(metrics))
+	c.sendHeartbeatToControlPlane(ctx, metrics)
 }
 
 // sendConsumerHeartbeat sends a consumer heartbeat
 func (c *StandardController) sendConsumerHeartbeat(ctx context.Context, metrics map[string]interface{}) {
-	/*
-	// Mocked for now - should use actual proto implementation
-	request := &controlplanepb.ConsumerHeartbeatRequest{
-		ConsumerId: c.serviceID,
-		Timestamp:  timestamppb.Now(),
-		Metrics:    protoMetrics,
-		Status:     string(c.healthServer.GetHealth()),
+	c.sendHeartbeatToControlPlane(ctx, metrics)
+}
+
+// sendHeartbeatToControlPlane sends a heartbeat to the control plane
+func (c *StandardController) sendHeartbeatToControlPlane(ctx context.Context, metrics map[string]interface{}) {
+	// Convert metrics map to string map for proto
+	metricsStr := make(map[string]string)
+	for k, v := range metrics {
+		metricsStr[k] = fmt.Sprintf("%v", v)
 	}
 
-	_, err := c.client.ConsumerHeartbeat(ctx, request)
+	request := &flowctlv1.HeartbeatRequest{
+		ServiceId: c.serviceID,
+		Status:    flowctlv1.HealthStatus(flowctlv1.HealthStatus_value[string(c.healthServer.GetHealth())]),
+		Metrics:   metricsStr,
+	}
+
+	_, err := c.client.Heartbeat(ctx, request)
 	if err != nil {
-		fmt.Printf("Error sending consumer heartbeat: %v\n", err)
+		fmt.Printf("Error sending heartbeat for ID %s: %v\n", c.serviceID, err)
 		return
 	}
-	*/
 
-	// Mock implementation
-	fmt.Printf("Sent consumer heartbeat for ID %s with %d metrics\n", c.serviceID, len(metrics))
+	// Uncomment for debugging
+	// fmt.Printf("Sent heartbeat for ID %s with %d metrics\n", c.serviceID, len(metrics))
 }
 
 // Helper function to generate a random service ID
