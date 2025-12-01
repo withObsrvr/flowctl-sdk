@@ -2,19 +2,21 @@ package processor
 
 import (
 	"context"
+
+	flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
 )
 
 // HandlerFunc is a function that processes events
-type HandlerFunc func(ctx context.Context, input []byte, metadata map[string]string) ([]byte, map[string]string, error)
+type HandlerFunc func(ctx context.Context, event *flowctlv1.Event) (*flowctlv1.Event, error)
 
 // Handler defines the interface for processing events
 type Handler interface {
 	// Handle processes a single event
-	Handle(ctx context.Context, input []byte, metadata map[string]string) ([]byte, map[string]string, error)
-	
+	Handle(ctx context.Context, event *flowctlv1.Event) (*flowctlv1.Event, error)
+
 	// GetInputTypes returns the input event types this handler can process
 	GetInputTypes() []string
-	
+
 	// GetOutputTypes returns the output event types this handler produces
 	GetOutputTypes() []string
 }
@@ -40,8 +42,8 @@ func NewHandler(
 }
 
 // Handle processes a single event
-func (h *EventHandler) Handle(ctx context.Context, input []byte, metadata map[string]string) ([]byte, map[string]string, error) {
-	return h.handle(ctx, input, metadata)
+func (h *EventHandler) Handle(ctx context.Context, event *flowctlv1.Event) (*flowctlv1.Event, error) {
+	return h.handle(ctx, event)
 }
 
 // GetInputTypes returns the input event types this handler can process

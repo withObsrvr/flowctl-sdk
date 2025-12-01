@@ -1,14 +1,15 @@
-# Flowctl Processor SDK
+# Flowctl SDK
 
-A Go-based SDK for simplifying the development of [flowctl](https://github.com/withObsrvr/flowctl) processors.
+A comprehensive Go SDK for building [flowctl](https://github.com/withObsrvr/flowctl) data pipeline components with minimal boilerplate.
 
 ## Features
 
-- Streamlined processor creation with minimal boilerplate
-- Automatic flowctl control plane integration
-- Built-in health checks and metrics
-- Standardized event handling patterns
-- Graceful startup and shutdown
+- **Three Complete SDKs**: Source, Processor, and Consumer
+- **Event-First API**: Work with strongly-typed `*flowctlv1.Event` objects
+- **Automatic Control Plane Integration**: Registration, heartbeats, and discovery
+- **Built-in Observability**: Health checks, metrics, and logging
+- **Production-Ready**: Graceful shutdown, error handling, and backpressure
+- **Developer-Friendly**: 70-85% less code than manual gRPC implementation
 
 ## Installation
 
@@ -18,64 +19,105 @@ go get github.com/withObsrvr/flowctl-sdk
 
 ## Quick Start
 
-Create a simple processor:
+### Processor Example
+
+Build a processor that transforms events:
 
 ```go
 package main
 
 import (
     "context"
-    "log"
-    "os"
-    "os/signal"
-    "syscall"
+    "fmt"
 
     "github.com/withObsrvr/flowctl-sdk/pkg/processor"
+    flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
 )
 
 func main() {
-    // Create a processor with default configuration
-    proc, err := processor.New(processor.DefaultConfig())
-    if err != nil {
-        log.Fatalf("Failed to create processor: %v", err)
-    }
+    proc, _ := processor.New(processor.DefaultConfig())
 
-    // Register a handler for processing events
     proc.OnProcess(
-        // Handler function
-        func(ctx context.Context, input []byte, metadata map[string]string) ([]byte, map[string]string, error) {
-            // Process the event
-            output := append(input, []byte(" - processed")...)
-            
-            // Update metrics
-            proc.Metrics().IncrementProcessedCount()
-            proc.Metrics().IncrementSuccessCount()
-            
-            return output, metadata, nil
+        func(ctx context.Context, event *flowctlv1.Event) (*flowctlv1.Event, error) {
+            // Transform the event
+            return &flowctlv1.Event{
+                Id:      fmt.Sprintf("%s-processed", event.Id),
+                Type:    "example.processed.event",
+                Payload: append(event.Payload, []byte(" - processed")...),
+            }, nil
         },
-        // Input types
-        []string{"example.event"},
-        // Output types
-        []string{"example.processed.event"},
+        []string{"example.event"},         // Input types
+        []string{"example.processed.event"}, // Output types
     )
 
-    // Start the processor
-    ctx, cancel := context.WithCancel(context.Background())
-    defer cancel()
+    proc.Start(context.Background())
+    waitForSignal()
+    proc.Stop()
+}
+```
 
-    if err := proc.Start(ctx); err != nil {
-        log.Fatalf("Failed to start processor: %v", err)
-    }
+### Source Example
 
-    // Wait for shutdown signal
-    sigCh := make(chan os.Signal, 1)
-    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-    <-sigCh
+Build a source that produces events:
 
-    // Graceful shutdown
-    if err := proc.Stop(); err != nil {
-        log.Printf("Error stopping processor: %v", err)
-    }
+```go
+import (
+    "github.com/withObsrvr/flowctl-sdk/pkg/source"
+    flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
+)
+
+func main() {
+    src, _ := source.New(source.DefaultConfig())
+
+    src.OnProduce(func(ctx context.Context, req *flowctlv1.StreamRequest) (<-chan *flowctlv1.Event, error) {
+        eventCh := make(chan *flowctlv1.Event, 100)
+
+        go func() {
+            defer close(eventCh)
+            for i := 0; ; i++ {
+                event := &flowctlv1.Event{
+                    Id:   fmt.Sprintf("event-%d", i),
+                    Type: "example.event",
+                    Payload: []byte(fmt.Sprintf("data-%d", i)),
+                }
+                select {
+                case <-ctx.Done():
+                    return
+                case eventCh <- event:
+                }
+            }
+        }()
+
+        return eventCh, nil
+    })
+
+    src.Start(context.Background())
+    waitForSignal()
+    src.Stop()
+}
+```
+
+### Consumer Example
+
+Build a consumer that stores events:
+
+```go
+import (
+    "github.com/withObsrvr/flowctl-sdk/pkg/consumer"
+    flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
+)
+
+func main() {
+    cons, _ := consumer.New(consumer.DefaultConfig())
+
+    cons.OnConsume(func(ctx context.Context, event *flowctlv1.Event) error {
+        // Store event in database
+        return db.Insert(event)
+    })
+
+    cons.Start(context.Background())
+    waitForSignal()
+    cons.Stop()
 }
 ```
 

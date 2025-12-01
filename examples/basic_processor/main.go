@@ -2,25 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/withObsrvr/flowctl-sdk/pkg/flowctl"
 	"github.com/withObsrvr/flowctl-sdk/pkg/processor"
+	flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
 )
-
-// SimpleEvent represents a basic event structure
-type SimpleEvent struct {
-	ID        string    `json:"id"`
-	Type      string    `json:"type"`
-	Timestamp time.Time `json:"timestamp"`
-	Data      string    `json:"data"`
-}
 
 func main() {
 	// Create processor with configuration
@@ -47,40 +37,32 @@ func main() {
 	// Register processing handler
 	err = proc.OnProcess(
 		// Handler function
-		func(ctx context.Context, input []byte, metadata map[string]string) ([]byte, map[string]string, error) {
-			// Parse input event
-			var event SimpleEvent
-			if err := json.Unmarshal(input, &event); err != nil {
-				return nil, nil, fmt.Errorf("failed to parse event: %w", err)
+		func(ctx context.Context, event *flowctlv1.Event) (*flowctlv1.Event, error) {
+			// Process the event (in this case, just append to the payload)
+			processedPayload := append(event.Payload, []byte(" - processed")...)
+
+			// Create output event
+			outputEvent := &flowctlv1.Event{
+				Id:                fmt.Sprintf("%s-processed", event.Id),
+				Type:              "example.processed.event",
+				Payload:           processedPayload,
+				Metadata:          make(map[string]string),
+				SourceComponentId: config.ID,
+				ContentType:       event.ContentType,
 			}
 
-			// Process the event (in this case, just append to the data)
-			event.Data = event.Data + " - Processed"
-			event.Timestamp = time.Now()
-
-			// Update metrics
-			proc.Metrics().IncrementProcessedCount()
-			proc.Metrics().IncrementSuccessCount()
-			proc.Metrics().RecordProcessingLatency(10.0) // Mock 10ms latency
-			
-			// Custom metrics
-			proc.Metrics().AddCounter("events_processed_by_type_"+event.Type, 1)
-
-			// Marshal the processed event
-			output, err := json.Marshal(event)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to marshal event: %w", err)
+			// Copy original metadata and add processing metadata
+			for k, v := range event.Metadata {
+				outputEvent.Metadata[k] = v
 			}
+			outputEvent.Metadata["processor_id"] = config.ID
+			outputEvent.Metadata["original_type"] = event.Type
 
-			// Return the processed event with updated metadata
-			metadata["processed_at"] = time.Now().Format(time.RFC3339)
-			metadata["processor_id"] = config.ID
-			
-			return output, metadata, nil
+			return outputEvent, nil
 		},
 		// Input types
 		[]string{"example.event"},
-		// Output types 
+		// Output types
 		[]string{"example.processed.event"},
 	)
 	if err != nil {
