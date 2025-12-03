@@ -34,6 +34,12 @@ type Config struct {
 	// HeartbeatInterval is the interval at which to send heartbeats
 	HeartbeatInterval time.Duration
 
+	// InputEventTypes defines the event types this component accepts as input
+	InputEventTypes []string
+
+	// OutputEventTypes defines the event types this component produces as output
+	OutputEventTypes []string
+
 	// Metadata contains additional properties to send with registration
 	Metadata map[string]string
 }
