@@ -2,3 +2,6 @@ docs/shape-up/DAY1-2-COMPLETE.md
 docs/shape-up/PHASE2-COMPLETE.md
 stellar-ledger-source
 docs/shape-up/flowctl-sdk-js.md
+examples/ttp-processor-simple/ttp-processor-simple
+examples/contract-invocation-processor/contract-invocation-processor
+examples/contract-invocation-processor/MIGRATION_GUIDE.md
