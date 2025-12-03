@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/withobsrvr/flowctl-sdk/pkg/stellar"
-	"github.com/withobsrvr/flowctl-sdk/pkg/stellar/helpers"
+	"github.com/withObsrvr/flowctl-sdk/pkg/stellar"
+	"github.com/withObsrvr/flowctl-sdk/pkg/stellar/helpers"
 	"github.com/stellar/go-stellar-sdk/processors/token_transfer"
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"google.golang.org/protobuf/proto"
