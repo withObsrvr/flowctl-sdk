@@ -5,3 +5,5 @@ docs/shape-up/flowctl-sdk-js.md
 examples/ttp-processor-simple/ttp-processor-simple
 examples/contract-invocation-processor/contract-invocation-processor
 examples/contract-invocation-processor/MIGRATION_GUIDE.md
+CYCLE4_COMPLETE.md
+HORIZON_VS_SDK_PROCESSORS.md
