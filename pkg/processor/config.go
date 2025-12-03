@@ -12,13 +12,17 @@ type Config struct {
 	Description string
 	Version     string
 	Endpoint    string
-	
+
+	// Event type configuration
+	InputEventTypes  []string
+	OutputEventTypes []string
+
 	// Concurrency configuration
 	MaxConcurrent int
 
 	// Flowctl configuration
 	FlowctlConfig *flowctl.Config
-	
+
 	// Health check configuration
 	HealthPort int
 }
@@ -71,7 +75,11 @@ func (c *Config) Validate() error {
 		c.FlowctlConfig.Metadata["processor_version"] = c.Version
 		c.FlowctlConfig.Metadata["processor_description"] = c.Description
 		c.FlowctlConfig.Metadata["endpoint"] = c.Endpoint
+
+		// Pass event types to flowctl config
+		c.FlowctlConfig.InputEventTypes = c.InputEventTypes
+		c.FlowctlConfig.OutputEventTypes = c.OutputEventTypes
 	}
-	
+
 	return nil
 }

@@ -94,13 +94,15 @@ func (c *StandardController) Register(ctx context.Context) error {
 func (c *StandardController) registerProcessor(ctx context.Context) error {
 	// Build component info from metadata
 	componentInfo := &flowctlv1.ComponentInfo{
-		Id:          c.serviceID,
-		Name:        c.config.Metadata["processor_name"],
-		Description: c.config.Metadata["processor_description"],
-		Version:     c.config.Metadata["processor_version"],
-		Type:        flowctlv1.ComponentType_COMPONENT_TYPE_PROCESSOR,
-		Endpoint:    c.config.Metadata["endpoint"],
-		Metadata:    c.config.Metadata,
+		Id:               c.serviceID,
+		Name:             c.config.Metadata["processor_name"],
+		Description:      c.config.Metadata["processor_description"],
+		Version:          c.config.Metadata["processor_version"],
+		Type:             flowctlv1.ComponentType_COMPONENT_TYPE_PROCESSOR,
+		Endpoint:         c.config.Metadata["endpoint"],
+		InputEventTypes:  c.config.InputEventTypes,
+		OutputEventTypes: c.config.OutputEventTypes,
+		Metadata:         c.config.Metadata,
 	}
 
 	request := &flowctlv1.RegisterRequest{
@@ -127,13 +129,15 @@ func (c *StandardController) registerProcessor(ctx context.Context) error {
 func (c *StandardController) registerSource(ctx context.Context) error {
 	// Build component info from metadata
 	componentInfo := &flowctlv1.ComponentInfo{
-		Id:          c.serviceID,
-		Name:        c.config.Metadata["source_name"],
-		Description: c.config.Metadata["source_description"],
-		Version:     c.config.Metadata["source_version"],
-		Type:        flowctlv1.ComponentType_COMPONENT_TYPE_SOURCE,
-		Endpoint:    c.config.Metadata["endpoint"],
-		Metadata:    c.config.Metadata,
+		Id:               c.serviceID,
+		Name:             c.config.Metadata["source_name"],
+		Description:      c.config.Metadata["source_description"],
+		Version:          c.config.Metadata["source_version"],
+		Type:             flowctlv1.ComponentType_COMPONENT_TYPE_SOURCE,
+		Endpoint:         c.config.Metadata["endpoint"],
+		InputEventTypes:  c.config.InputEventTypes,
+		OutputEventTypes: c.config.OutputEventTypes,
+		Metadata:         c.config.Metadata,
 	}
 
 	request := &flowctlv1.RegisterRequest{
@@ -160,13 +164,15 @@ func (c *StandardController) registerSource(ctx context.Context) error {
 func (c *StandardController) registerConsumer(ctx context.Context) error {
 	// Build component info from metadata
 	componentInfo := &flowctlv1.ComponentInfo{
-		Id:          c.serviceID,
-		Name:        c.config.Metadata["consumer_name"],
-		Description:c.config.Metadata["consumer_description"],
-		Version:     c.config.Metadata["consumer_version"],
-		Type:        flowctlv1.ComponentType_COMPONENT_TYPE_CONSUMER,
-		Endpoint:    c.config.Metadata["endpoint"],
-		Metadata:    c.config.Metadata,
+		Id:               c.serviceID,
+		Name:             c.config.Metadata["consumer_name"],
+		Description:      c.config.Metadata["consumer_description"],
+		Version:          c.config.Metadata["consumer_version"],
+		Type:             flowctlv1.ComponentType_COMPONENT_TYPE_CONSUMER,
+		Endpoint:         c.config.Metadata["endpoint"],
+		InputEventTypes:  c.config.InputEventTypes,
+		OutputEventTypes: c.config.OutputEventTypes,
+		Metadata:         c.config.Metadata,
 	}
 
 	request := &flowctlv1.RegisterRequest{

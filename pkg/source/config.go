@@ -75,6 +75,9 @@ func (c *Config) Validate() error {
 		c.FlowctlConfig.Metadata["source_version"] = c.Version
 		c.FlowctlConfig.Metadata["source_description"] = c.Description
 		c.FlowctlConfig.Metadata["endpoint"] = c.Endpoint
+
+		// Pass event types to flowctl config
+		c.FlowctlConfig.OutputEventTypes = c.OutputEventTypes
 	}
 
 	return nil
