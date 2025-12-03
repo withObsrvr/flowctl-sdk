@@ -7,3 +7,8 @@ examples/contract-invocation-processor/contract-invocation-processor
 examples/contract-invocation-processor/MIGRATION_GUIDE.md
 CYCLE4_COMPLETE.md
 HORIZON_VS_SDK_PROCESSORS.md
+
+*.log
+examples/contract-events-processor/bin/contract-events-processor
+examples/contract-events-pipeline/contract-events-pipeline.yaml
+CYCLE5_SHAPE.md
