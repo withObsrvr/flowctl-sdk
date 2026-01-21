@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package dualmode.v1;
+
+option go_package = "github.com/withObsrvr/flowctl-sdk/examples/dual-mode-template/proto";
+
+// ExampleEvent demonstrates a simple event structure
+// Replace this with your actual event schema
+message ExampleEvent {
+  // Unique event identifier
+  string id = 1;
+
+  // The type of event (e.g., "transfer", "mint", "burn")
+  string event_type = 2;
+
+  // Source account or contract
+  string source = 3;
+
+  // Event-specific data as JSON string
+  // In production, use structured fields instead
+  string data = 4;
+
+  // Event metadata
+  EventMeta meta = 5;
+}
+
+// EventMeta contains common metadata for all events
+message EventMeta {
+  // Ledger sequence number
+  uint32 ledger_sequence = 1;
+
+  // Transaction hash (hex string)
+  string tx_hash = 2;
+
+  // Operation index within the transaction
+  uint32 operation_index = 3;
+
+  // Ledger close time (Unix timestamp)
+  int64 ledger_close_time = 4;
+
+  // Whether the transaction was successful
+  bool successful = 5;
+}
+
+// ExampleEventBatch is used for flowctl mode (batch output)
+message ExampleEventBatch {
+  // All events extracted from a ledger
+  repeated ExampleEvent events = 1;
+
+  // Ledger sequence this batch was extracted from
+  uint32 ledger_sequence = 2;
+
+  // Total event count
+  uint32 event_count = 3;
+}
