@@ -11,7 +11,7 @@ database:
   port: 5432
   database: "stellar_events"
   user: "postgres"
-  password: "stellarpassword"  # Will be overridden by ENV
+  password: ""  # Set via POSTGRES_PASSWORD env var; never commit real passwords
   sslmode: "disable"
   max_open_conns: 10
   max_idle_conns: 5

@@ -179,7 +179,10 @@ func (p *EventsProcessor) processContractEvent(
 	// Process topics
 	var topics []map[string]string
 	for _, topic := range event.Body.V0.Topics {
-		xdrBytes, _ := topic.MarshalBinary()
+		xdrBytes, err := topic.MarshalBinary()
+		if err != nil {
+			log.Printf("Warning: failed to marshal topic to XDR: %v", err)
+		}
 		topicMap := map[string]string{
 			"xdr_base64": base64.StdEncoding.EncodeToString(xdrBytes),
 			"json":       scValToJSON(topic),
@@ -188,7 +191,10 @@ func (p *EventsProcessor) processContractEvent(
 	}
 
 	// Process data
-	dataBytes, _ := event.Body.V0.Data.MarshalBinary()
+	dataBytes, err := event.Body.V0.Data.MarshalBinary()
+	if err != nil {
+		log.Printf("Warning: failed to marshal event data to XDR: %v", err)
+	}
 	data := map[string]string{
 		"xdr_base64": base64.StdEncoding.EncodeToString(dataBytes),
 		"json":       scValToJSON(event.Body.V0.Data),
@@ -234,7 +240,11 @@ func scValToJSON(val xdr.ScVal) string {
 		return fmt.Sprintf(`{"type":"string","value":"%s"}`, strVal)
 	case xdr.ScValTypeScvAddress:
 		addr := val.MustAddress()
-		addrStr, _ := addr.String()
+		addrStr, err := addr.String()
+		if err != nil {
+			log.Printf("Warning: failed to convert address to string: %v", err)
+			return `{"type":"address","error":"conversion_failed"}`
+		}
 		return fmt.Sprintf(`{"type":"address","value":"%s"}`, addrStr)
 	case xdr.ScValTypeScvVec:
 		vecVal := val.MustVec()
@@ -250,7 +260,11 @@ func scValToJSON(val xdr.ScVal) string {
 		return fmt.Sprintf(`{"type":"map","length":%d}`, len(*mapVal))
 	default:
 		// For unknown types, marshal to base64
-		xdrBytes, _ := val.MarshalBinary()
+		xdrBytes, err := val.MarshalBinary()
+		if err != nil {
+			log.Printf("Warning: failed to marshal unknown ScVal type to XDR: %v", err)
+			return `{"type":"unknown","error":"marshal_failed"}`
+		}
 		return fmt.Sprintf(`{"type":"unknown","xdr":"%s"}`, base64.StdEncoding.EncodeToString(xdrBytes))
 	}
 }

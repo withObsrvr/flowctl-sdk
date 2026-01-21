@@ -247,12 +247,6 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func parseInt(s string) int {
-	var v int
-	fmt.Sscanf(s, "%d", &v)
-	return v
-}
-
 func toKebabCase(s string) string {
 	// Simple conversion: lowercase and replace spaces with hyphens
 	result := ""

@@ -163,7 +163,9 @@ func (s *PostgreSQLSink) InsertBatch(ctx context.Context, batch *stellarv1.Contr
 	}
 	defer func() {
 		if err != nil {
-			tx.Rollback()
+			if rbErr := tx.Rollback(); rbErr != nil {
+				log.Printf("Failed to rollback transaction: %v", rbErr)
+			}
 		}
 	}()
 

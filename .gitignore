@@ -12,3 +12,5 @@ HORIZON_VS_SDK_PROCESSORS.md
 examples/contract-events-processor/bin/contract-events-processor
 examples/contract-events-pipeline/contract-events-pipeline.yaml
 CYCLE5_SHAPE.md
+examples/postgresql-consumer/bin/postgresql-consumer
+basic_processor

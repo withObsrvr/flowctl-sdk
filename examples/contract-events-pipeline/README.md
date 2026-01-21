@@ -169,8 +169,8 @@ spec:
       env:
         RPC_ENDPOINT: "https://soroban-testnet.stellar.org:443"
         NETWORK_PASSPHRASE: "Test SDF Network ; September 2015"
-        START_LEDGER: "1873306"  # Configure ledger range here
-        END_LEDGER: "1873320"
+        START_LEDGER: "1910000"  # Configure ledger range here
+        END_LEDGER: "1910100"
 
   processors:
     - id: contract-events-processor
