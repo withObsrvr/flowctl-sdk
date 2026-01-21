@@ -4,6 +4,8 @@ go 1.24
 
 toolchain go1.24.11
 
+replace github.com/withObsrvr/flowctl-sdk => ../..
+
 require (
 	github.com/stellar/go-stellar-sdk v0.0.0-20251201220028-3321201669c7
 	github.com/withObsrvr/flowctl-sdk v0.0.0-00010101000000-000000000000
@@ -71,7 +73,7 @@ require (
 	github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
-	github.com/withObsrvr/flow-proto v0.0.0-00010101000000-000000000000 // indirect
+	github.com/withObsrvr/flow-proto v0.0.0-20251209215201-bd54ee3e43e9 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0 // indirect
@@ -97,9 +99,4 @@ require (
 	gopkg.in/djherbis/atime.v1 v1.0.0 // indirect
 	gopkg.in/djherbis/stream.v1 v1.3.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-)
-
-replace (
-	github.com/withObsrvr/flow-proto => ../../../flow-proto
-	github.com/withObsrvr/flowctl-sdk => ../..
 )

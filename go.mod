@@ -5,7 +5,7 @@ go 1.24
 toolchain go1.24.11
 
 require (
-	github.com/withObsrvr/flow-proto v0.0.0-00010101000000-000000000000
+	github.com/withObsrvr/flow-proto v0.0.0-20251209215201-bd54ee3e43e9
 	google.golang.org/grpc v1.71.0
 )
 
@@ -57,7 +57,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
@@ -102,5 +101,3 @@ require (
 	gopkg.in/djherbis/atime.v1 v1.0.0 // indirect
 	gopkg.in/djherbis/stream.v1 v1.3.1 // indirect
 )
-
-replace github.com/withObsrvr/flow-proto => ../flow-proto
