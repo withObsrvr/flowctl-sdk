@@ -39,25 +39,37 @@
           '';
         };
 
-        # Optional: Add a build output for the SDK itself
-        packages.default = pkgs.buildGoModule {
-          pname = "flowctl-sdk";
-          version = "0.1.0";
-          src = ./.;
+        # Build packages for examples
+        packages = {
+          contract-events-processor = pkgs.buildGoModule {
+            pname = "contract-events-processor";
+            version = "1.0.0";
+            src = ./.;
+            subPackages = [ "examples/contract-events-processor" ];
+            vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Will be updated by nix
+          };
 
-          # This will need to be updated when go.sum changes
-          # Run `nix flake update` to regenerate
-          vendorHash = null;  # SDK is a library, no main package
+          postgresql-consumer = pkgs.buildGoModule {
+            pname = "postgresql-consumer";
+            version = "1.0.0";
+            src = ./.;
+            subPackages = [ "examples/postgresql-consumer" ];
+            vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Will be updated by nix
+          };
 
-          # Don't try to build binaries - this is a library
-          buildPhase = ''
-            echo "flowctl-sdk is a library package - no binaries to build"
-          '';
-
-          installPhase = ''
-            mkdir -p $out
-            echo "flowctl-sdk is a library package - imported via go get" > $out/README
-          '';
+          default = pkgs.buildGoModule {
+            pname = "flowctl-sdk";
+            version = "0.1.0";
+            src = ./.;
+            vendorHash = null;  # SDK is a library, no main package
+            buildPhase = ''
+              echo "flowctl-sdk is a library package - no binaries to build"
+            '';
+            installPhase = ''
+              mkdir -p $out
+              echo "flowctl-sdk is a library package - imported via go get" > $out/README
+            '';
+          };
         };
       });
 }

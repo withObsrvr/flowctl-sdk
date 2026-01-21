@@ -1,303 +1,221 @@
+// Package consumer provides a zero-config wrapper for building event consumers.
+//
+// Example usage:
+//
+//	import (
+//	    "github.com/withObsrvr/flowctl-sdk/pkg/consumer"
+//	    flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
+//	)
+//
+//	func main() {
+//	    consumer.Run(consumer.ConsumerConfig{
+//	        ConsumerName: "PostgreSQL Consumer",
+//	        InputType:    "stellar.contract.events.v1",
+//	        OnEvent: func(ctx context.Context, event *flowctlv1.Event) error {
+//	            // Process the event
+//	            return processEvent(event)
+//	        },
+//	    })
+//	}
+//
+// That's it! All configuration is handled through environment variables or an optional consumer.yaml file.
 package consumer
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"io"
+	"log"
 	"net"
-	"sync"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/withObsrvr/flowctl-sdk/pkg/flowctl"
 	flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
-	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-// Error types
-var (
-	ErrConsumerStopped = errors.New("consumer has been stopped")
-	ErrHandlerNotSet   = errors.New("handler function not set")
-)
+// EventHandlerFunc is a function that processes an incoming event.
+// The function receives the event and should return an error if processing fails.
+type EventHandlerFunc func(ctx context.Context, event *flowctlv1.Event) error
 
-// HandlerFunc is a function that handles incoming events
-// Return an error if the event cannot be processed
-// The consumer will track success/error metrics automatically
-type HandlerFunc func(ctx context.Context, event *flowctlv1.Event) error
+// ConsumerConfig defines the configuration for a generic consumer.
+type ConsumerConfig struct {
+	// ConsumerName is the human-readable name of the consumer (e.g., "PostgreSQL Consumer")
+	ConsumerName string
 
-// Consumer is the main interface for a flowctl consumer
-type Consumer interface {
-	// Start starts the consumer
-	Start(ctx context.Context) error
+	// InputType is the event type this consumer subscribes to (e.g., "stellar.contract.events.v1")
+	InputType string
 
-	// Stop stops the consumer
-	Stop() error
+	// OnEvent is the function that processes each event
+	OnEvent EventHandlerFunc
 
-	// OnConsume registers the event handler function
-	OnConsume(handler HandlerFunc) error
+	// Optional: Custom configuration file path (defaults to "consumer.yaml")
+	ConfigPath string
 
-	// GetMetrics returns the current metrics
-	GetMetrics() map[string]interface{}
+	// Optional: Component ID (defaults to consumer name in kebab-case)
+	ComponentID string
 
-	// Metrics returns the metrics interface
-	Metrics() flowctl.Metrics
+	// Optional: Output event type if consumer forwards events (empty = terminal consumer)
+	OutputType string
 }
 
-// StandardConsumer implements the Consumer interface
-type StandardConsumer struct {
-	flowctlv1.UnimplementedConsumerServiceServer
-
-	config     *Config
-	handler    HandlerFunc
-	server     *grpc.Server
-	controller flowctl.Controller
-	metrics    flowctl.Metrics
-	health     flowctl.HealthServer
-
-	mu           sync.RWMutex
-	started      bool
-	stopCh       chan struct{}
-	consumingWg  sync.WaitGroup
-	semaphore    chan struct{} // For limiting concurrency
-}
-
-// New creates a new consumer
-func New(config *Config) (*StandardConsumer, error) {
-	if config == nil {
-		config = DefaultConfig()
+// Run starts a generic consumer with zero configuration required.
+//
+// Configuration is loaded from:
+// 1. Default values
+// 2. consumer.yaml file (if present)
+// 3. Environment variables (override file)
+//
+// Required environment variables: None (all have defaults)
+//
+// Optional environment variables:
+//   - COMPONENT_ID: Component identifier (default: derived from ConsumerName)
+//   - PORT: gRPC server port (default: ":50052")
+//   - HEALTH_PORT: Health check port (default: "8089")
+//   - ENABLE_FLOWCTL: Enable flowctl integration (default: "false")
+//   - FLOWCTL_ENDPOINT: Flowctl endpoint (default: "localhost:8080")
+//   - ENABLE_METRICS: Enable metrics (default: "true")
+func Run(cfg ConsumerConfig) {
+	// Load configuration
+	configPath := cfg.ConfigPath
+	if configPath == "" {
+		configPath = "consumer.yaml"
 	}
 
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Validate configuration
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+		log.Fatalf("Invalid configuration: %v", err)
 	}
 
-	// Create metrics
-	metrics := flowctl.NewStandardMetrics()
-
-	// Create health server
-	health := flowctl.NewHealthServer(config.HealthPort, metrics)
-
-	// Create controller if flowctl is enabled
-	var controller flowctl.Controller
-	if config.FlowctlConfig != nil && config.FlowctlConfig.Enabled {
-		controller = flowctl.NewController(*config.FlowctlConfig, metrics, health)
+	// Set consumer-specific config
+	if cfg.ConsumerName != "" {
+		config.Consumer.Name = cfg.ConsumerName
+	}
+	if cfg.InputType != "" {
+		config.Consumer.Input = cfg.InputType
+	}
+	if cfg.OutputType != "" {
+		config.Consumer.Output = cfg.OutputType
 	}
 
-	// Create semaphore for concurrency control
-	semaphore := make(chan struct{}, config.MaxConcurrent)
-
-	return &StandardConsumer{
-		config:     config,
-		metrics:    metrics,
-		controller: controller,
-		health:     health,
-		stopCh:     make(chan struct{}),
-		semaphore:  semaphore,
-	}, nil
-}
-
-// OnConsume registers the event handler function
-func (c *StandardConsumer) OnConsume(handler HandlerFunc) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.handler = handler
-	return nil
-}
-
-// Start starts the consumer
-func (c *StandardConsumer) Start(ctx context.Context) error {
-	c.mu.Lock()
-	if c.started {
-		c.mu.Unlock()
-		return nil
+	// Get configuration from environment with defaults
+	componentID := cfg.ComponentID
+	if componentID == "" {
+		componentID = getEnv("COMPONENT_ID", toKebabCase(config.Consumer.Name))
 	}
-	c.started = true
-	c.mu.Unlock()
+	port := getEnv("PORT", ":50052")
+	healthPort := getEnv("HEALTH_PORT", "8089")
 
-	if c.handler == nil {
-		return ErrHandlerNotSet
-	}
+	log.Printf("Starting %s", config.Consumer.Name)
+	log.Printf("Input type: %s", cfg.InputType)
+	log.Printf("Terminal consumer (no output)")
 
-	// Start health server
-	c.health.SetHealth(flowctl.HealthStatusStarting)
-	if err := c.health.Start(); err != nil {
-		return fmt.Errorf("failed to start health server: %w", err)
-	}
-
-	// Register with flowctl if enabled
-	if c.controller != nil {
-		if err := c.controller.Register(ctx); err != nil {
-			return fmt.Errorf("failed to register with flowctl: %w", err)
-		}
-
-		if err := c.controller.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start flowctl controller: %w", err)
-		}
-	}
+	// Create consumer service
+	consumerService := NewConsumerService(config, cfg.ConsumerName, cfg.InputType, cfg.OnEvent)
 
 	// Start gRPC server
-	lis, err := net.Listen("tcp", c.config.Endpoint)
+	listener, err := net.Listen("tcp", port)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", c.config.Endpoint, err)
+		log.Fatalf("Failed to listen on %s: %v", port, err)
 	}
 
-	c.server = grpc.NewServer()
+	// Create gRPC server with large message limits
+	maxMsgSize := 50 * 1024 * 1024 // 50MB
+	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(maxMsgSize),
+		grpc.MaxSendMsgSize(maxMsgSize),
+	)
 
-	// Register the consumer service
-	flowctlv1.RegisterConsumerServiceServer(c.server, c)
+	// Register consumer service
+	flowctlv1.RegisterConsumerServiceServer(grpcServer, consumerService)
 
-	// Enable reflection for development
-	reflection.Register(c.server)
+	// Register health service
+	healthServer := health.NewServer()
+	healthpb.RegisterHealthServer(grpcServer, healthServer)
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
-	// Start the server
+	// Start server in background
 	go func() {
-		if err := c.server.Serve(lis); err != nil {
-			fmt.Printf("Failed to serve: %v\n", err)
+		log.Printf("%s is running", config.Consumer.Name)
+		log.Printf("Endpoint: %s", port)
+		log.Printf("Health port: %s", healthPort)
+		if config.Flowctl.Enabled {
+			log.Printf("Flowctl enabled: %s", config.Flowctl.Endpoint)
+		}
+
+		if err := grpcServer.Serve(listener); err != nil {
+			log.Fatalf("Failed to serve: %v", err)
 		}
 	}()
 
-	fmt.Printf("Consumer %s started on %s\n", c.config.ID, c.config.Endpoint)
-	c.health.SetHealth(flowctl.HealthStatusHealthy)
-
-	return nil
-}
-
-// Stop stops the consumer
-func (c *StandardConsumer) Stop() error {
-	c.mu.Lock()
-	if !c.started {
-		c.mu.Unlock()
-		return nil
-	}
-	c.started = false
-	close(c.stopCh)
-	c.mu.Unlock()
-
-	c.health.SetHealth(flowctl.HealthStatusStopping)
-
-	// Stop the controller if enabled
-	if c.controller != nil {
-		if err := c.controller.Stop(); err != nil {
-			fmt.Printf("Error stopping controller: %v\n", err)
-		}
-	}
-
-	// Stop the gRPC server
-	if c.server != nil {
-		c.server.GracefulStop()
-	}
-
-	// Wait for all consuming to complete
-	c.consumingWg.Wait()
-
-	// Stop the health server
-	if err := c.health.Stop(); err != nil {
-		fmt.Printf("Error stopping health server: %v\n", err)
-	}
-
-	fmt.Printf("Consumer %s stopped\n", c.config.ID)
-	return nil
-}
-
-// GetMetrics returns the current metrics
-func (c *StandardConsumer) GetMetrics() map[string]interface{} {
-	return c.metrics.GetMetrics()
-}
-
-// Metrics returns the metrics interface
-func (c *StandardConsumer) Metrics() flowctl.Metrics {
-	return c.metrics
-}
-
-// Consume implements the gRPC Consume method
-func (c *StandardConsumer) Consume(stream flowctlv1.ConsumerService_ConsumeServer) error {
-	ctx := stream.Context()
-
-	eventsConsumed := int64(0)
-
-	fmt.Printf("Consumer %s: Started consuming events\n", c.config.ID)
-
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Printf("Consumer %s: Stream context cancelled\n", c.config.ID)
-			return ctx.Err()
-		case <-c.stopCh:
-			fmt.Printf("Consumer %s: Consumer stopped\n", c.config.ID)
-			return stream.SendAndClose(&flowctlv1.ConsumeResponse{
-				EventsConsumed: eventsConsumed,
-			})
-		default:
-			// Receive event
-			event, err := stream.Recv()
-			if err == io.EOF {
-				// Stream closed
-				fmt.Printf("Consumer %s: Stream closed, consumed %d events\n", c.config.ID, eventsConsumed)
-				return stream.SendAndClose(&flowctlv1.ConsumeResponse{
-					EventsConsumed: eventsConsumed,
-				})
-			}
+	// Register with flowctl control plane if enabled
+	if config.Flowctl.Enabled {
+		go func() {
+			// Connect to control plane
+			conn, err := grpc.Dial(config.Flowctl.Endpoint,
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+			)
 			if err != nil {
-				fmt.Printf("Consumer %s: Error receiving event: %v\n", c.config.ID, err)
-				return err
+				log.Fatalf("Failed to connect to flowctl: %v", err)
+			}
+			defer conn.Close()
+
+			client := flowctlv1.NewControlPlaneServiceClient(conn)
+
+			// Register consumer
+			_, err = client.RegisterComponent(context.Background(), &flowctlv1.RegisterRequest{
+				ComponentId: componentID,
+				Component: &flowctlv1.ComponentInfo{
+					Id:               componentID,
+					Name:             config.Consumer.Name,
+					Description:      config.Consumer.Description,
+					Version:          config.Consumer.Version,
+					Type:             flowctlv1.ComponentType_COMPONENT_TYPE_CONSUMER,
+					InputEventTypes:  []string{cfg.InputType},
+					OutputEventTypes: []string{},
+					Endpoint:         port,
+					Metadata:         map[string]string{"health_port": healthPort},
+				},
+			})
+			if err != nil {
+				log.Fatalf("Failed to register with flowctl: %v", err)
 			}
 
-			// Acquire semaphore (limit concurrency)
-			c.semaphore <- struct{}{}
+			log.Printf("Registered with flowctl control plane")
 
-			// Handle event asynchronously
-			c.consumingWg.Add(1)
-			go func(evt *flowctlv1.Event) {
-				defer c.consumingWg.Done()
-				defer func() { <-c.semaphore }() // Release semaphore
+			// Send heartbeats
+			ticker := time.NewTicker(time.Duration(config.Flowctl.HeartbeatInterval) * time.Millisecond)
+			defer ticker.Stop()
 
-				startTime := time.Now()
-
-				// Call handler
-				err := c.handler(ctx, evt)
-
-				// Record metrics
-				c.metrics.RecordProcessingLatency(float64(time.Since(startTime).Milliseconds()))
-				c.metrics.IncrementProcessedCount()
-
+			for range ticker.C {
+				_, err := client.Heartbeat(context.Background(), &flowctlv1.HeartbeatRequest{
+					ServiceId: componentID,
+				})
 				if err != nil {
-					c.metrics.IncrementErrorCount()
-					fmt.Printf("Consumer %s: Error handling event %s: %v\n", c.config.ID, evt.Id, err)
-				} else {
-					c.metrics.IncrementSuccessCount()
+					log.Printf("Failed to send heartbeat: %v", err)
 				}
-			}(event)
-
-			eventsConsumed++
-		}
+			}
+		}()
 	}
-}
 
-// GetInfo implements the gRPC GetInfo method
-func (c *StandardConsumer) GetInfo(ctx context.Context, _ *emptypb.Empty) (*flowctlv1.ComponentInfo, error) {
-	return &flowctlv1.ComponentInfo{
-		Id:              c.config.ID,
-		Name:            c.config.Name,
-		Description:     c.config.Description,
-		Version:         c.config.Version,
-		Type:            flowctlv1.ComponentType_COMPONENT_TYPE_CONSUMER,
-		InputEventTypes: c.config.InputEventTypes,
-		Endpoint:        c.config.Endpoint,
-		Metadata: map[string]string{
-			"max_concurrent": fmt.Sprintf("%d", c.config.MaxConcurrent),
-		},
-	}, nil
-}
+	// Wait for interrupt signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
 
-// HealthCheck implements the gRPC HealthCheck method
-func (c *StandardConsumer) HealthCheck(ctx context.Context, req *flowctlv1.HealthCheckRequest) (*flowctlv1.HealthCheckResponse, error) {
-	status := c.health.GetHealth()
-
-	return &flowctlv1.HealthCheckResponse{
-		Status:  flowctlv1.HealthStatus(flowctlv1.HealthStatus_value[string(status)]),
-		Message: fmt.Sprintf("Consumer %s is %s", c.config.ID, status),
-	}, nil
+	// Stop the consumer gracefully
+	log.Printf("Shutting down %s...", config.Consumer.Name)
+	if err := consumerService.Stop(); err != nil {
+		log.Printf("Error stopping consumer service: %v", err)
+	}
+	grpcServer.GracefulStop()
+	log.Printf("%s stopped successfully", config.Consumer.Name)
 }
