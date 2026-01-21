@@ -4,11 +4,9 @@ go 1.24
 
 replace github.com/withObsrvr/flowctl-sdk => ../..
 
-replace github.com/withObsrvr/flow-proto => ../../../flow-proto
-
 require (
-	github.com/withObsrvr/flow-proto v0.0.0
-	github.com/withObsrvr/flowctl-sdk v0.0.0
+	github.com/withObsrvr/flow-proto v0.0.0-20251209215201-bd54ee3e43e9
+	github.com/withObsrvr/flowctl-sdk v0.0.0-00010101000000-000000000000
 	google.golang.org/protobuf v1.36.6
 )
 
