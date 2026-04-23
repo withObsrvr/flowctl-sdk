@@ -1,4 +1,5 @@
-// Transform provides a zero-config wrapper for building event-to-event transform processors.
+// Package stellar provides helpers for building Stellar event processors, including
+// zero-config wrappers for event-to-event transform processors.
 //
 // Example usage:
 //
@@ -75,6 +76,16 @@ type TransformConfig struct {
 //   - ENABLE_FLOWCTL: Enable flowctl integration (default: "false")
 //   - FLOWCTL_ENDPOINT: Flowctl endpoint (default: "localhost:8080")
 func RunTransform(cfg TransformConfig) {
+	if cfg.InputType == "" {
+		log.Fatal("RunTransform requires a non-empty InputType")
+	}
+	if cfg.OutputType == "" {
+		log.Fatal("RunTransform requires a non-empty OutputType")
+	}
+	if cfg.Transform == nil {
+		log.Fatal("RunTransform requires a non-nil Transform function")
+	}
+
 	// Load configuration
 	configPath := cfg.ConfigPath
 	if configPath == "" {

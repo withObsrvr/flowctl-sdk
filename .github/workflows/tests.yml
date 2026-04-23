@@ -33,16 +33,4 @@ jobs:
         run: go mod download
 
       - name: Run tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          packages=$(go list ./... | grep -v '/examples/' || true)
-
-          if [ -z "$packages" ]; then
-            echo "No non-example packages found to test"
-            exit 0
-          fi
-
-          echo "Testing packages:"
-          echo "$packages"
-          go test -v $packages
+        run: go test -v ./...

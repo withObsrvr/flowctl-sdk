@@ -27,6 +27,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -46,8 +47,13 @@ type ConsumerConfig struct {
 	// ConsumerName is the human-readable name of the consumer (e.g., "PostgreSQL Consumer")
 	ConsumerName string
 
-	// InputType is the event type this consumer subscribes to (e.g., "stellar.contract.events.v1")
+	// InputType is the event type this consumer subscribes to.
+	// Deprecated: use InputTypes for multi-type support.
 	InputType string
+
+	// InputTypes are the event types this consumer subscribes to.
+	// If provided, these take precedence over InputType.
+	InputTypes []string
 
 	// OnEvent is the function that processes each event
 	OnEvent EventHandlerFunc
@@ -99,8 +105,12 @@ func Run(cfg ConsumerConfig) {
 	if cfg.ConsumerName != "" {
 		config.Consumer.Name = cfg.ConsumerName
 	}
-	if cfg.InputType != "" {
-		config.Consumer.Input = cfg.InputType
+	inputTypes := cfg.InputTypes
+	if len(inputTypes) == 0 && cfg.InputType != "" {
+		inputTypes = []string{cfg.InputType}
+	}
+	if len(inputTypes) > 0 {
+		config.Consumer.Input = strings.Join(inputTypes, ",")
 	}
 	if cfg.OutputType != "" {
 		config.Consumer.Output = cfg.OutputType
@@ -115,11 +125,11 @@ func Run(cfg ConsumerConfig) {
 	healthPort := getEnv("HEALTH_PORT", "8089")
 
 	log.Printf("Starting %s", config.Consumer.Name)
-	log.Printf("Input type: %s", cfg.InputType)
+	log.Printf("Input types: %v", inputTypes)
 	log.Printf("Terminal consumer (no output)")
 
 	// Create consumer service
-	consumerService := NewConsumerService(config, cfg.ConsumerName, cfg.InputType, cfg.OnEvent)
+	consumerService := NewConsumerService(config, cfg.ConsumerName, inputTypes, cfg.OnEvent)
 
 	// Start gRPC server
 	listener, err := net.Listen("tcp", port)
@@ -179,7 +189,7 @@ func Run(cfg ConsumerConfig) {
 					Description:      config.Consumer.Description,
 					Version:          config.Consumer.Version,
 					Type:             flowctlv1.ComponentType_COMPONENT_TYPE_CONSUMER,
-					InputEventTypes:  []string{cfg.InputType},
+					InputEventTypes:  inputTypes,
 					OutputEventTypes: []string{},
 					Endpoint:         port,
 					Metadata:         map[string]string{"health_port": healthPort},

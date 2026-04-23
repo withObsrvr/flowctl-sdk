@@ -18,7 +18,8 @@ type ConsumerService struct {
 
 	config         *Config
 	consumerName   string
-	inputType      string
+	inputTypes     []string
+	inputTypeSet   map[string]struct{}
 	onEvent        EventHandlerFunc
 	processingWg   sync.WaitGroup
 	stopCh         chan struct{}
@@ -29,11 +30,17 @@ type ConsumerService struct {
 }
 
 // NewConsumerService creates a new consumer service
-func NewConsumerService(config *Config, consumerName, inputType string, onEvent EventHandlerFunc) *ConsumerService {
+func NewConsumerService(config *Config, consumerName string, inputTypes []string, onEvent EventHandlerFunc) *ConsumerService {
+	inputTypeSet := make(map[string]struct{}, len(inputTypes))
+	for _, inputType := range inputTypes {
+		inputTypeSet[inputType] = struct{}{}
+	}
+
 	return &ConsumerService{
 		config:       config,
 		consumerName: consumerName,
-		inputType:    inputType,
+		inputTypes:   inputTypes,
+		inputTypeSet: inputTypeSet,
 		onEvent:      onEvent,
 		stopCh:       make(chan struct{}),
 	}
@@ -47,7 +54,7 @@ func (c *ConsumerService) GetInfo(ctx context.Context, _ *emptypb.Empty) (*flowc
 		Description:      c.config.Consumer.Description,
 		Version:          c.config.Consumer.Version,
 		Type:             flowctlv1.ComponentType_COMPONENT_TYPE_CONSUMER,
-		InputEventTypes:  []string{c.inputType},
+		InputEventTypes:  c.inputTypes,
 		OutputEventTypes: []string{}, // Terminal consumer
 		Endpoint:         getEnv("PORT", ":50052"),
 		Metadata:         map[string]string{},
@@ -114,10 +121,12 @@ func (c *ConsumerService) Consume(stream flowctlv1.ConsumerService_ConsumeServer
 				continue
 			}
 
-			// Only process events matching our input type
-			if event.Type != c.inputType {
-				log.Printf("Skipping event with non-matching type: %s (expected %s)", event.Type, c.inputType)
-				continue
+			// Only process events matching our configured input types
+			if len(c.inputTypeSet) > 0 {
+				if _, ok := c.inputTypeSet[event.Type]; !ok {
+					log.Printf("Skipping event with non-matching type: %s (expected one of %v)", event.Type, c.inputTypes)
+					continue
+				}
 			}
 
 			// Process the event
