@@ -1,0 +1,48 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Remove local-only module replace
+        run: |
+          go mod edit -dropreplace github.com/withObsrvr/flow-proto || true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=$(go list ./... | grep -v '/examples/' || true)
+
+          if [ -z "$packages" ]; then
+            echo "No non-example packages found to test"
+            exit 0
+          fi
+
+          echo "Testing packages:"
+          echo "$packages"
+          go test -v $packages
