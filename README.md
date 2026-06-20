@@ -7,6 +7,7 @@ A comprehensive Go SDK for building [flowctl](https://github.com/withObsrvr/flow
 - **Three Complete SDKs**: Source, Processor, and Consumer
 - **Event-First API**: Work with strongly-typed `*flowctlv1.Event` objects
 - **Automatic Control Plane Integration**: Registration, heartbeats, and discovery
+- **Historical Chunk Reporting**: Report bounded ledger work-unit progress, completion, verification, and failures
 - **Built-in Observability**: Health checks, metrics, and logging
 - **Production-Ready**: Graceful shutdown, error handling, and backpressure
 - **Developer-Friendly**: 70-85% less code than manual gRPC implementation
@@ -142,6 +143,37 @@ if err != nil {
     log.Fatalf("Failed to create processor: %v", err)
 }
 ```
+
+## Historical Chunk Reporting
+
+For bounded historical workers, use the component reporter to emit flowctl chunk state:
+
+```go
+import (
+    "github.com/withObsrvr/flowctl-sdk/pkg/component"
+    flowctlpb "github.com/withobsrvr/flowctl/proto"
+)
+
+cfg := component.ConfigFromEnv()
+reporter, err := component.NewReporter(ctx, cfg)
+if err != nil {
+    return err
+}
+defer reporter.Close()
+
+_ = reporter.Register(ctx, flowctlpb.ServiceType_SERVICE_TYPE_SOURCE, map[string]string{
+    "network": "pubnet",
+})
+
+_ = reporter.ReportChunkProgress(ctx, chunkStart, chunkEnd, "extract", nil, nil)
+_ = reporter.ReportChunkCompleted(ctx, chunkStart, chunkEnd, true, map[string]int64{
+    "ledgers": chunkEnd - chunkStart + 1,
+}, map[string]string{"passed": "true"})
+```
+
+The reporter reads the standard `flowctl run` component environment contract:
+`ENABLE_FLOWCTL`, `FLOWCTL_ENDPOINT`, `FLOWCTL_COMPONENT_ID`, `FLOWCTL_RUN_ID`,
+`FLOWCTL_ATTEMPT`, and `FLOWCTL_HEARTBEAT_INTERVAL_MS`.
 
 ## Custom Metrics
 
