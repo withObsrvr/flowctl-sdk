@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	flowctlpb "github.com/withobsrvr/flowctl/proto"
@@ -57,14 +58,18 @@ func ConfigFromEnv() Config {
 
 // Reporter emits component lifecycle and historical chunk state to flowctl.
 type Reporter struct {
-	cfg       Config
-	conn      *grpc.ClientConn
-	client    flowctlpb.ControlPlaneClient
+	cfg Config
+
+	conn   *grpc.ClientConn
+	client flowctlpb.ControlPlaneClient
+
+	mu        sync.RWMutex
 	serviceID string
 }
 
 // NewReporter connects to the control plane. If cfg.Enabled is false it returns a disabled no-op reporter.
 func NewReporter(ctx context.Context, cfg Config) (*Reporter, error) {
+	cfg = normalizeConfig(cfg)
 	r := &Reporter{cfg: cfg}
 	if !cfg.Enabled {
 		return r, nil
@@ -109,6 +114,28 @@ func (r *Reporter) Enabled() bool {
 	return r != nil && r.cfg.Enabled
 }
 
+func (r *Reporter) getServiceID() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.serviceID
+}
+
+func (r *Reporter) setServiceID(serviceID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.serviceID = serviceID
+}
+
+func normalizeConfig(cfg Config) Config {
+	if cfg.Attempt <= 0 {
+		cfg.Attempt = 1
+	}
+	if cfg.HeartbeatInterval <= 0 {
+		cfg.HeartbeatInterval = defaultHeartbeatInterval
+	}
+	return cfg
+}
+
 // Register announces the component to flowctl.
 func (r *Reporter) Register(ctx context.Context, serviceType flowctlpb.ServiceType, metadata map[string]string) error {
 	if !r.Enabled() {
@@ -128,11 +155,11 @@ func (r *Reporter) Register(ctx context.Context, serviceType flowctlpb.ServiceTy
 	if err != nil {
 		return fmt.Errorf("register component with flowctl: %w", err)
 	}
-	if resp.ServiceId != "" {
-		r.serviceID = resp.ServiceId
-	} else {
-		r.serviceID = r.cfg.ComponentID
+	serviceID := resp.ServiceId
+	if serviceID == "" {
+		serviceID = r.cfg.ComponentID
 	}
+	r.setServiceID(serviceID)
 	return nil
 }
 
@@ -141,7 +168,7 @@ func (r *Reporter) Heartbeat(ctx context.Context, metrics map[string]float64) er
 	if !r.Enabled() {
 		return nil
 	}
-	serviceID := r.serviceID
+	serviceID := r.getServiceID()
 	if serviceID == "" {
 		serviceID = r.cfg.ComponentID
 	}

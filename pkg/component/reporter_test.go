@@ -65,6 +65,12 @@ func TestDisabledReporterIsNoop(t *testing.T) {
 	if reporter.Enabled() {
 		t.Fatal("expected reporter to be disabled")
 	}
+	if reporter.cfg.Attempt != 1 {
+		t.Fatalf("expected normalized attempt 1, got %d", reporter.cfg.Attempt)
+	}
+	if reporter.cfg.HeartbeatInterval != defaultHeartbeatInterval {
+		t.Fatalf("expected normalized heartbeat interval %s, got %s", defaultHeartbeatInterval, reporter.cfg.HeartbeatInterval)
+	}
 	if err := reporter.Register(context.Background(), flowctlpb.ServiceType_SERVICE_TYPE_SOURCE, nil); err != nil {
 		t.Fatalf("disabled Register should be noop: %v", err)
 	}
@@ -73,6 +79,35 @@ func TestDisabledReporterIsNoop(t *testing.T) {
 	}
 	if err := reporter.ReportChunkProgress(context.Background(), 1, 2, "extract", nil, nil); err != nil {
 		t.Fatalf("disabled ReportChunkProgress should be noop: %v", err)
+	}
+}
+
+func TestReporterServiceIDAccessors(t *testing.T) {
+	reporter := &Reporter{cfg: Config{ComponentID: "component-a"}}
+	if got := reporter.getServiceID(); got != "" {
+		t.Fatalf("expected empty service id, got %q", got)
+	}
+	reporter.setServiceID("service-a")
+	if got := reporter.getServiceID(); got != "service-a" {
+		t.Fatalf("expected service-a, got %q", got)
+	}
+}
+
+func TestNormalizeConfig(t *testing.T) {
+	cfg := normalizeConfig(Config{})
+	if cfg.Attempt != 1 {
+		t.Fatalf("expected default attempt 1, got %d", cfg.Attempt)
+	}
+	if cfg.HeartbeatInterval != defaultHeartbeatInterval {
+		t.Fatalf("expected default heartbeat interval %s, got %s", defaultHeartbeatInterval, cfg.HeartbeatInterval)
+	}
+
+	cfg = normalizeConfig(Config{Attempt: 4, HeartbeatInterval: 2 * time.Second})
+	if cfg.Attempt != 4 {
+		t.Fatalf("expected attempt to be preserved, got %d", cfg.Attempt)
+	}
+	if cfg.HeartbeatInterval != 2*time.Second {
+		t.Fatalf("expected heartbeat interval to be preserved, got %s", cfg.HeartbeatInterval)
 	}
 }
 
