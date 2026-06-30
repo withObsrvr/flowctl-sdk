@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/withObsrvr/flowctl-sdk/pkg/flowctl"
 	flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
+	"github.com/withObsrvr/flowctl-sdk/pkg/flowctl"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -26,16 +26,16 @@ var (
 type Processor interface {
 	// Start starts the processor
 	Start(ctx context.Context) error
-	
+
 	// Stop stops the processor
 	Stop() error
-	
+
 	// RegisterHandler registers a handler for processing events
 	RegisterHandler(handler Handler) error
-	
+
 	// GetMetrics returns the current metrics
 	GetMetrics() map[string]interface{}
-	
+
 	// Metrics returns the metrics interface
 	Metrics() flowctl.Metrics
 }
@@ -51,9 +51,9 @@ type StandardProcessor struct {
 	metrics    flowctl.Metrics
 	health     flowctl.HealthServer
 
-	mu          sync.RWMutex
-	started     bool
-	stopCh      chan struct{}
+	mu           sync.RWMutex
+	started      bool
+	stopCh       chan struct{}
 	processingWg sync.WaitGroup
 }
 
@@ -226,52 +226,63 @@ func (p *StandardProcessor) Process(stream flowctlv1.ProcessorService_ProcessSer
 				return err
 			}
 
-			// Process the event asynchronously
-			p.processingWg.Add(1)
-			go func(inputEvent *flowctlv1.Event) {
-				defer p.processingWg.Done()
-
-				startTime := time.Now()
-
-				// Find handler for the event type
-				handlers := p.registry.GetHandlersForType(inputEvent.Type)
-
-				if len(handlers) == 0 {
-					p.metrics.IncrementErrorCount()
-					fmt.Printf("No handler for event type: %s\n", inputEvent.Type)
-					return
-				}
-
-				// Use first handler for now (could implement more complex routing)
-				handler := handlers[0]
-
-				// Process the event
-				outputEvent, err := handler.Handle(ctx, inputEvent)
-
-				// Record metrics
-				p.metrics.RecordProcessingLatency(float64(time.Since(startTime).Milliseconds()))
-				p.metrics.IncrementProcessedCount()
-
-				if err != nil {
-					p.metrics.IncrementErrorCount()
-					fmt.Printf("Error processing event: %v\n", err)
-					return
-				}
-
-				// Skip nil events (processor chose to filter this event)
-				if outputEvent == nil {
-					return
-				}
-
-				p.metrics.IncrementSuccessCount()
-
-				// Send the response
-				if err := stream.Send(outputEvent); err != nil {
-					fmt.Printf("Error sending response: %v\n", err)
-				}
-			}(event)
+			if err := p.processAndSend(ctx, stream, event); err != nil {
+				return err
+			}
 		}
 	}
+}
+
+func (p *StandardProcessor) processAndSend(
+	ctx context.Context,
+	stream flowctlv1.ProcessorService_ProcessServer,
+	inputEvent *flowctlv1.Event,
+) error {
+	p.processingWg.Add(1)
+	defer p.processingWg.Done()
+
+	startTime := time.Now()
+
+	// Find handler for the event type
+	handlers := p.registry.GetHandlersForType(inputEvent.Type)
+
+	if len(handlers) == 0 {
+		p.metrics.IncrementErrorCount()
+		fmt.Printf("No handler for event type: %s\n", inputEvent.Type)
+		return nil
+	}
+
+	// Use first handler for now (could implement more complex routing)
+	handler := handlers[0]
+
+	// Process the event
+	outputEvent, err := handler.Handle(ctx, inputEvent)
+
+	// Record metrics
+	p.metrics.RecordProcessingLatency(float64(time.Since(startTime).Milliseconds()))
+	p.metrics.IncrementProcessedCount()
+
+	if err != nil {
+		p.metrics.IncrementErrorCount()
+		fmt.Printf("Error processing event: %v\n", err)
+		return nil
+	}
+
+	// Skip nil events (processor chose to filter this event)
+	if outputEvent == nil {
+		return nil
+	}
+
+	p.metrics.IncrementSuccessCount()
+
+	// Send the response before receiving the next input. This keeps bounded
+	// upstream streams from closing the server side before the final output
+	// has drained to downstream consumers.
+	if err := stream.Send(outputEvent); err != nil {
+		fmt.Printf("Error sending response: %v\n", err)
+		return err
+	}
+	return nil
 }
 
 // GetInfo implements the gRPC GetInfo method
