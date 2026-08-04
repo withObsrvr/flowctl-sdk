@@ -8,7 +8,7 @@
 // Usage:
 //
 //	# Nebu mode (default)
-//	nebu fetch --start-ledger 60000000 | ./dual-mode-processor
+//	nebu fetch 60000000 60000001 | ./dual-mode-processor
 //
 //	# Flowctl mode
 //	ENABLE_FLOWCTL=true ./dual-mode-processor

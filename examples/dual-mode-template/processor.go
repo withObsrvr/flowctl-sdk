@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io"
 
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/ingest"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	proto "github.com/withObsrvr/flowctl-sdk/examples/dual-mode-template/proto"
 )
 
@@ -18,21 +20,32 @@ func EventsFromLedger(networkPassphrase string, ledger xdr.LedgerCloseMeta) ([]*
 	ledgerSeq := ledger.LedgerSequence()
 	closeTime := int64(ledger.LedgerHeaderHistoryEntry().Header.ScpValue.CloseTime)
 
-	// Iterate through all transactions in the ledger
-	for txIdx, tx := range ledger.TransactionsWithMeta() {
-		txHash := tx.TransactionHash()
-		txSuccess := tx.Result.Successful()
+	txReader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(networkPassphrase, ledger)
+	if err != nil {
+		return nil, fmt.Errorf("create transaction reader: %w", err)
+	}
+	defer txReader.Close()
 
-		// Iterate through all operations in the transaction
-		for opIdx, op := range tx.Operations() {
-			// Extract events based on operation type
-			// This is where your custom extraction logic goes
+	// Iterate through all transactions in the ledger.
+	for txIdx := 0; ; txIdx++ {
+		tx, err := txReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read transaction %d: %w", txIdx, err)
+		}
+
+		// Iterate through all operations in the transaction.
+		for opIdx, op := range tx.Envelope.Operations() {
+			// Extract events based on operation type.
+			// This is where your custom extraction logic goes.
 			event := extractEventFromOperation(op, &proto.EventMeta{
 				LedgerSequence:  ledgerSeq,
-				TxHash:          txHash.HexString(),
+				TxHash:          tx.Hash.HexString(),
 				OperationIndex:  uint32(opIdx),
 				LedgerCloseTime: closeTime,
-				Successful:      txSuccess,
+				Successful:      tx.Result.Successful(),
 			})
 
 			if event != nil {

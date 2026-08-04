@@ -1,13 +1,13 @@
-//go:build !flowctl_only
-// +build !flowctl_only
-
 package main
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	proto "github.com/withObsrvr/flowctl-sdk/examples/dual-mode-template/proto"
+	"github.com/withObsrvr/nebu/pkg/processor"
+	"github.com/withObsrvr/nebu/pkg/processor/cli"
 )
 
 // NebuOrigin implements the nebu ProtoOriginProcessor interface
@@ -24,25 +24,21 @@ func NewNebuOrigin(networkPass string) *NebuOrigin {
 	}
 }
 
-// ProcessLedger implements the nebu processor interface
-func (o *NebuOrigin) ProcessLedger(ctx context.Context, ledger xdr.LedgerCloseMeta) error {
-	// Call the shared extraction logic
+// ProcessLedger implements the nebu processor interface.
+func (o *NebuOrigin) ProcessLedger(ctx context.Context, ledger xdr.LedgerCloseMeta) {
 	events, err := EventsFromLedger(o.networkPass, ledger)
 	if err != nil {
-		return err
+		processor.ReportWarning(ctx, o.Name(), fmt.Errorf("ledger %d: %w", ledger.LedgerSequence(), err))
+		return
 	}
 
-	// Emit events to the output channel
 	for _, event := range events {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		case o.out <- event:
-			// Event emitted successfully
 		}
 	}
-
-	return nil
 }
 
 // Out returns the output channel (required by nebu interface)
@@ -55,29 +51,25 @@ func (o *NebuOrigin) Close() {
 	close(o.out)
 }
 
-// Name returns the processor name (required by nebu interface)
+// Name returns the processor name (required by nebu interface).
 func (o *NebuOrigin) Name() string {
 	return "dual-mode-processor"
+}
+
+// Type identifies this processor as an origin.
+func (o *NebuOrigin) Type() processor.Type {
+	return processor.TypeOrigin
 }
 
 // runNebuMode starts the processor in nebu mode
 // This function is called when FLOWCTL_ENDPOINT is not set
 func runNebuMode() {
-	// Note: This requires the nebu CLI package
-	// Import: "github.com/withObsrvr/nebu/pkg/processor/cli"
-	//
-	// cli.RunProtoOriginCLI(cli.OriginConfig{
-	//     Name:        "dual-mode-processor",
-	//     Description: "Dual-mode processor for nebu and flowctl",
-	//     Version:     version,
-	// }, func(networkPass string) cli.ProtoOriginProcessor[*proto.ExampleEvent] {
-	//     return NewNebuOrigin(networkPass)
-	// })
-
-	// For this template, we'll print a message indicating nebu mode
-	// In a real implementation, uncomment the above and import the nebu CLI package
-	println("Running in nebu mode (stub)")
-	println("To enable full nebu mode:")
-	println("1. Add nebu CLI dependency: go get github.com/withObsrvr/nebu/pkg/processor/cli")
-	println("2. Uncomment the RunProtoOriginCLI call in nebu.go")
+	cli.RunProtoOriginCLI(cli.OriginConfig{
+		Name:        "dual-mode-processor",
+		Description: "Extract example events from Stellar ledgers",
+		Version:     version,
+		SchemaID:    "dualmode.events.v1",
+	}, func(networkPass string) cli.ProtoOriginProcessor[*proto.ExampleEvent] {
+		return NewNebuOrigin(networkPass)
+	})
 }

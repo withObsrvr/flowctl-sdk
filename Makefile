@@ -8,6 +8,13 @@ GOTEST=$(GOCMD) test
 GOGET=$(GOCMD) get
 GOMOD=$(GOCMD) mod
 
+# Go modules in this repository
+MODULE_DIRS=. \
+	examples/contract-events-processor \
+	examples/contract-invocation-processor \
+	examples/dual-mode-template \
+	examples/postgresql-consumer
+
 # Main package
 MAIN_PACKAGE=./examples/basic_processor
 
@@ -17,13 +24,22 @@ EXAMPLE_BINARY=basic-processor
 all: build
 
 build:
-	$(GOBUILD) -v ./...
+	@set -e; for dir in $(MODULE_DIRS); do \
+		echo "==> Building $$dir"; \
+		(cd $$dir && $(GOBUILD) -v ./...); \
+	done
 
 test:
-	$(GOTEST) -v ./...
+	@set -e; for dir in $(MODULE_DIRS); do \
+		echo "==> Testing $$dir"; \
+		(cd $$dir && $(GOTEST) -v ./...); \
+	done
 
 clean:
-	$(GOCLEAN)
+	@set -e; for dir in $(MODULE_DIRS); do \
+		echo "==> Cleaning $$dir"; \
+		(cd $$dir && $(GOCLEAN)); \
+	done
 	rm -f $(EXAMPLE_BINARY)
 
 run-example:
@@ -31,7 +47,10 @@ run-example:
 	./$(EXAMPLE_BINARY)
 
 tidy:
-	$(GOMOD) tidy
+	@set -e; for dir in $(MODULE_DIRS); do \
+		echo "==> Tidying $$dir"; \
+		(cd $$dir && $(GOMOD) tidy); \
+	done
 
 vendor:
 	$(GOMOD) vendor
@@ -46,11 +65,11 @@ install-tools:
 	$(GOGET) -u google.golang.org/grpc/cmd/protoc-gen-go-grpc
 
 help:
-	@echo "make build     - Build the SDK"
-	@echo "make test      - Run tests"
+	@echo "make build     - Build all modules"
+	@echo "make test      - Test all modules"
 	@echo "make clean     - Clean build artifacts"
 	@echo "make run-example - Build and run the example processor"
-	@echo "make tidy      - Tidy up the go.mod file"
+	@echo "make tidy      - Tidy all modules"
 	@echo "make vendor    - Vendor dependencies"
 	@echo "make update-proto - Update proto dependencies"
 	@echo "make install-tools - Install required development tools"

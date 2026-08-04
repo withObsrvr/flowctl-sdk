@@ -46,7 +46,7 @@ go build -o bin/dual-mode-processor
 
 ```bash
 # With nebu fetch
-nebu fetch --start-ledger 60000000 --end-ledger 60000001 | ./bin/dual-mode-processor
+nebu fetch 60000000 60000001 | ./bin/dual-mode-processor
 
 # Standalone with XDR file
 cat ledger.xdr | ./bin/dual-mode-processor
@@ -138,7 +138,7 @@ func runFlowctlMode() {
 
 ```bash
 # Test nebu mode
-nebu fetch --start-ledger 60000000 --end-ledger 60000001 | ./bin/dual-mode-processor | jq .
+nebu fetch 60000000 60000001 | ./bin/dual-mode-processor | jq .
 
 # Test flowctl mode
 ENABLE_FLOWCTL=true ./bin/dual-mode-processor &

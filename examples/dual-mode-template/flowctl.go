@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/stellar/go/xdr"
+	"github.com/stellar/go-stellar-sdk/xdr"
 	"github.com/withObsrvr/flowctl-sdk/pkg/stellar"
 	"google.golang.org/protobuf/proto"
 
