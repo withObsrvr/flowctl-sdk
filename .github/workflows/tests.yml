@@ -24,13 +24,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: "**/go.sum"
 
-      - name: Remove local-only module replace
+      - name: Verify module files are tidy
         run: |
-          go mod edit -dropreplace github.com/withObsrvr/flow-proto || true
-
-      - name: Download dependencies
-        run: go mod download
+          make tidy
+          git diff --exit-code -- go.mod go.sum '**/go.mod' '**/go.sum'
 
       - name: Run tests
-        run: go test -v ./...
+        run: make test

@@ -118,7 +118,7 @@ protoc --go_out=. --go_opt=paths=source_relative proto/payment.proto
 package main
 
 import (
-    "github.com/stellar/go/xdr"
+    "github.com/stellar/go-stellar-sdk/xdr"
     "github.com/withObsrvr/flowctl-sdk/pkg/stellar"
     "google.golang.org/protobuf/proto"
 

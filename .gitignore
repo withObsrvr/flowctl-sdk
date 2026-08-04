@@ -3,7 +3,10 @@ docs/shape-up/PHASE2-COMPLETE.md
 stellar-ledger-source
 docs/shape-up/flowctl-sdk-js.md
 examples/ttp-processor-simple/ttp-processor-simple
+examples/contract-events-processor/contract-events-processor
 examples/contract-invocation-processor/contract-invocation-processor
+examples/postgresql-consumer/postgresql-consumer
+examples/dual-mode-template/dual-mode-processor
 examples/contract-invocation-processor/MIGRATION_GUIDE.md
 CYCLE4_COMPLETE.md
 HORIZON_VS_SDK_PROCESSORS.md
@@ -13,4 +16,4 @@ examples/contract-events-processor/bin/contract-events-processor
 examples/contract-events-pipeline/contract-events-pipeline.yaml
 CYCLE5_SHAPE.md
 examples/postgresql-consumer/bin/postgresql-consumer
-basic_processor
+/basic_processor
