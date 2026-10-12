@@ -48,6 +48,8 @@ func streamStatus(err error) error {
 			return status.Error(codes.DataLoss, "source data integrity failure")
 		case DownstreamUnavailable:
 			return status.Error(codes.Unavailable, "source downstream unavailable")
+		case Internal:
+			return status.Error(codes.Internal, "source internal failure")
 		}
 	}
 	if errors.Is(err, context.Canceled) {

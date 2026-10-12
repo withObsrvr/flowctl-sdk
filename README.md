@@ -102,6 +102,8 @@ client disconnect or SDK shutdown cancels that context. A bounded producer can
 return `nil`; an unbounded producer must run until cancellation or report an
 error. Legacy `OnProduce` retains its EOF-is-success behavior, is deprecated,
 and is planned for removal in v2.0.0. Mixing the two handlers is rejected.
+The existing `source.Source` interface remains unchanged for custom implementations;
+`source.StreamSource` extends it with `OnProduceStream`.
 
 Classify errors with `&source.StreamError{Kind: source.UpstreamUnavailable, Cause: err}`.
 Kinds map to gRPC codes: `InvalidRequest` → `InvalidArgument`, `Canceled` →

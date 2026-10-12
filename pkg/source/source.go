@@ -43,9 +43,6 @@ type Source interface {
 	// OnProduce registers the event producer function
 	OnProduce(producer ProducerFunc) error
 
-	// OnProduceStream registers the error-aware producer.
-	OnProduceStream(producer ProducerStreamFunc) error
-
 	// GetMetrics returns the current metrics
 	GetMetrics() map[string]interface{}
 
@@ -53,7 +50,14 @@ type Source interface {
 	Metrics() flowctl.Metrics
 }
 
-// StandardSource implements the Source interface
+// StreamSource extends Source with terminal-error-aware streaming without
+// changing the legacy Source interface implemented by downstream components.
+type StreamSource interface {
+	Source
+	OnProduceStream(producer ProducerStreamFunc) error
+}
+
+// StandardSource implements Source and StreamSource.
 type StandardSource struct {
 	flowctlv1.UnimplementedSourceServiceServer
 
@@ -382,7 +386,11 @@ func (s *StandardSource) failStream(err error) error {
 	fmt.Printf("Source %s: producer failed: %v\n", s.config.ID, err)
 	s.metrics.IncrementErrorCount()
 	var classified *StreamError
-	if !errors.Is(err, context.Canceled) && (!errors.As(err, &classified) || classified.Kind != Canceled) {
+	if errors.As(err, &classified) {
+		if classified.Kind != Canceled && classified.Kind != InvalidRequest {
+			s.health.SetHealth(flowctl.HealthStatusUnhealthy)
+		}
+	} else if !errors.Is(err, context.Canceled) {
 		s.health.SetHealth(flowctl.HealthStatusUnhealthy)
 	}
 	return streamStatus(err)
