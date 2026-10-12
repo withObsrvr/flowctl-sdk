@@ -70,26 +70,23 @@ import (
 func main() {
     src, _ := source.New(source.DefaultConfig())
 
-    src.OnProduce(func(ctx context.Context, req *flowctlv1.StreamRequest) (<-chan *flowctlv1.Event, error) {
-        eventCh := make(chan *flowctlv1.Event, 100)
-
+    src.OnProduceStream(func(ctx context.Context, req *flowctlv1.StreamRequest) (*source.ProducerStream, error) {
+        events := make(chan *flowctlv1.Event, 100)
+        result := make(chan error, 1)
         go func() {
-            defer close(eventCh)
-            for i := 0; ; i++ {
-                event := &flowctlv1.Event{
-                    Id:   fmt.Sprintf("event-%d", i),
-                    Type: "example.event",
-                    Payload: []byte(fmt.Sprintf("data-%d", i)),
-                }
+            defer close(events)
+            for i := 0; i < 10; i++ { // bounded example
+                event := &flowctlv1.Event{Id: fmt.Sprintf("event-%d", i), Type: "example.event"}
                 select {
                 case <-ctx.Done():
+                    result <- ctx.Err()
                     return
-                case eventCh <- event:
+                case events <- event:
                 }
             }
+            result <- nil // publish exactly once, before closing events
         }()
-
-        return eventCh, nil
+        return &source.ProducerStream{Events: events, Result: result, Bounded: true}, nil
     })
 
     src.Start(context.Background())
@@ -97,6 +94,22 @@ func main() {
     src.Stop()
 }
 ```
+
+`OnProduceStream` drains buffered events before reading the terminal result. Send
+exactly one result into a capacity-one channel before closing `Events`. Always
+select on `ctx.Done()` while producing, including when the buffer is full; a
+client disconnect or SDK shutdown cancels that context. A bounded producer can
+return `nil`; an unbounded producer must run until cancellation or report an
+error. Legacy `OnProduce` retains its EOF-is-success behavior, is deprecated,
+and is planned for removal in v2.0.0. Mixing the two handlers is rejected.
+
+Classify errors with `&source.StreamError{Kind: source.UpstreamUnavailable, Cause: err}`.
+Kinds map to gRPC codes: `InvalidRequest` → `InvalidArgument`, `Canceled` →
+`Canceled`, `UpstreamUnavailable` and `DownstreamUnavailable` → `Unavailable`,
+`DataIntegrity` → `DataLoss`, `Internal` and unclassified errors → `Internal`.
+Context deadlines map to `DeadlineExceeded`. Causes are logged locally; only
+fixed, redacted messages reach clients. Non-cancellation terminal failures mark
+source health `UNHEALTHY` (including `/ready` and `/live`).
 
 ### Consumer Example
 

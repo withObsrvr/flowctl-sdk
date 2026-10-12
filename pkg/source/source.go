@@ -7,8 +7,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/withObsrvr/flowctl-sdk/pkg/flowctl"
 	flowctlv1 "github.com/withObsrvr/flow-proto/go/gen/flowctl/v1"
+	"github.com/withObsrvr/flowctl-sdk/pkg/flowctl"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -19,9 +19,11 @@ var (
 	ErrSourceStopped    = errors.New("source has been stopped")
 	ErrProducerNotSet   = errors.New("producer function not set")
 	ErrAlreadyStreaming = errors.New("already streaming events")
+	ErrProducerConflict = errors.New("old and stream producers cannot both be configured")
 )
 
 // ProducerFunc is a function that produces events on a channel
+// Deprecated: use ProducerStreamFunc and OnProduceStream. Removal is planned for v2.0.0.
 // The function should:
 // - Create a channel with appropriate buffer size
 // - Start a goroutine to produce events
@@ -41,6 +43,9 @@ type Source interface {
 	// OnProduce registers the event producer function
 	OnProduce(producer ProducerFunc) error
 
+	// OnProduceStream registers the error-aware producer.
+	OnProduceStream(producer ProducerStreamFunc) error
+
 	// GetMetrics returns the current metrics
 	GetMetrics() map[string]interface{}
 
@@ -52,12 +57,13 @@ type Source interface {
 type StandardSource struct {
 	flowctlv1.UnimplementedSourceServiceServer
 
-	config     *Config
-	producer   ProducerFunc
-	server     *grpc.Server
-	controller flowctl.Controller
-	metrics    flowctl.Metrics
-	health     flowctl.HealthServer
+	config         *Config
+	producer       ProducerFunc
+	streamProducer ProducerStreamFunc
+	server         *grpc.Server
+	controller     flowctl.Controller
+	metrics        flowctl.Metrics
+	health         flowctl.HealthServer
 
 	mu          sync.RWMutex
 	started     bool
@@ -102,7 +108,27 @@ func (s *StandardSource) OnProduce(producer ProducerFunc) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if producer == nil {
+		return ErrProducerNotSet
+	}
+	if s.streamProducer != nil {
+		return ErrProducerConflict
+	}
 	s.producer = producer
+	return nil
+}
+
+// OnProduceStream registers an error-aware producer.
+func (s *StandardSource) OnProduceStream(producer ProducerStreamFunc) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if producer == nil {
+		return ErrProducerNotSet
+	}
+	if s.producer != nil {
+		return ErrProducerConflict
+	}
+	s.streamProducer = producer
 	return nil
 }
 
@@ -113,12 +139,12 @@ func (s *StandardSource) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
-	s.started = true
-	s.mu.Unlock()
-
-	if s.producer == nil {
+	if s.producer == nil && s.streamProducer == nil {
+		s.mu.Unlock()
 		return ErrProducerNotSet
 	}
+	s.started = true
+	s.mu.Unlock()
 
 	// Start health server
 	s.health.SetHealth(flowctl.HealthStatusStarting)
@@ -221,6 +247,8 @@ func (s *StandardSource) StreamEvents(req *flowctlv1.StreamRequest, stream flowc
 		return ErrAlreadyStreaming
 	}
 	s.streaming = true
+	producer := s.producer
+	streamProducer := s.streamProducer
 	s.mu.Unlock()
 
 	defer func() {
@@ -229,8 +257,14 @@ func (s *StandardSource) StreamEvents(req *flowctlv1.StreamRequest, stream flowc
 		s.mu.Unlock()
 	}()
 
-	// Call producer function to get event channel
-	eventCh, err := s.producer(ctx, req)
+	if streamProducer != nil {
+		return s.streamWithResult(ctx, req, stream, streamProducer)
+	}
+	if producer == nil {
+		return ErrProducerNotSet
+	}
+	// Legacy behavior: EOF is successful, even for an unbounded producer.
+	eventCh, err := producer(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to start producer: %w", err)
 	}
@@ -264,6 +298,94 @@ func (s *StandardSource) StreamEvents(req *flowctlv1.StreamRequest, stream flowc
 			s.metrics.IncrementSuccessCount()
 		}
 	}
+}
+
+// streamWithResult drains buffered events before observing the terminal result.
+func (s *StandardSource) streamWithResult(ctx context.Context, req *flowctlv1.StreamRequest, stream flowctlv1.SourceService_StreamEventsServer, producer ProducerStreamFunc) error {
+	ctx, cancel := context.WithCancel(ctx)
+	watcherDone := make(chan struct{})
+	go func() {
+		defer close(watcherDone)
+		select {
+		case <-s.stopCh:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	defer func() { cancel(); <-watcherDone }()
+
+	result, err := producer(ctx, req)
+	if ctx.Err() != nil {
+		return streamStatus(ctx.Err())
+	}
+	if err != nil {
+		return s.failStream(err)
+	}
+	if result == nil || result.Events == nil || result.Result == nil {
+		return s.failStream(errors.New("producer returned incomplete stream"))
+	}
+	for {
+		// Cancellation takes precedence over any buffered events.
+		if err := ctx.Err(); err != nil {
+			return streamStatus(err)
+		}
+		select {
+		case <-ctx.Done():
+			return streamStatus(ctx.Err())
+		case event, ok := <-result.Events:
+			if !ok {
+				if err := ctx.Err(); err != nil {
+					return streamStatus(err)
+				}
+				// Result must have been sent before Events was closed: never wait for a
+				// broken producer after EOF, and detect missing/duplicate terminal values.
+				select {
+				case terminal, ok := <-result.Result:
+					if !ok {
+						return s.failStream(errors.New("missing terminal result"))
+					}
+					if len(result.Result) != 0 {
+						return s.failStream(errors.New("multiple terminal results"))
+					}
+					if terminal != nil {
+						if errors.Is(terminal, context.Canceled) && ctx.Err() != nil {
+							return streamStatus(ctx.Err())
+						}
+						return s.failStream(terminal)
+					}
+					if !result.Bounded {
+						return s.failStream(errors.New("unbounded producer ended without cancellation"))
+					}
+					return nil
+				default:
+					return s.failStream(errors.New("missing terminal result"))
+				}
+			}
+			if err := ctx.Err(); err != nil {
+				return streamStatus(err)
+			}
+			if event == nil {
+				return s.failStream(errors.New("nil producer event"))
+			}
+			if err := stream.Send(event); err != nil {
+				// Disconnect cancels the producer via the deferred cancel.
+				fmt.Printf("Source %s: send failed: %v\n", s.config.ID, err)
+				return streamStatus(&StreamError{Kind: DownstreamUnavailable, Cause: err})
+			}
+			s.metrics.IncrementProcessedCount()
+			s.metrics.IncrementSuccessCount()
+		}
+	}
+}
+
+func (s *StandardSource) failStream(err error) error {
+	fmt.Printf("Source %s: producer failed: %v\n", s.config.ID, err)
+	s.metrics.IncrementErrorCount()
+	var classified *StreamError
+	if !errors.Is(err, context.Canceled) && (!errors.As(err, &classified) || classified.Kind != Canceled) {
+		s.health.SetHealth(flowctl.HealthStatusUnhealthy)
+	}
+	return streamStatus(err)
 }
 
 // GetInfo implements the gRPC GetInfo method
