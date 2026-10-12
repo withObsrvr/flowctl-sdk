@@ -2,6 +2,9 @@ package processor
 
 import (
 	"context"
+	"errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"io"
 	"sync"
 	"testing"
@@ -57,6 +60,29 @@ func TestProcessSendsOutputBeforeHandlingInputEOF(t *testing.T) {
 	}
 	if stream.sent[0].Id != "out" {
 		t.Fatalf("sent output id = %q, want out", stream.sent[0].Id)
+	}
+}
+
+func TestProcessorFailureAndFilter(t *testing.T) {
+	p, _ := New(DefaultConfig())
+	p.OnProcess(func(ctx context.Context, e *flowctlv1.Event) (*flowctlv1.Event, error) {
+		if e.Id == "bad" {
+			return nil, errors.New("password=secret")
+		}
+		return nil, nil
+	}, []string{"in"}, nil)
+	for _, tc := range []struct {
+		id, typ string
+		wantErr bool
+	}{{"ok", "in", false}, {"bad", "in", true}, {"missing", "other", true}} {
+		s := &fakeProcessStream{ctx: context.Background(), events: []*flowctlv1.Event{{Id: tc.id, Type: tc.typ}}}
+		err := p.Process(s)
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("%s: %v", tc.id, err)
+		}
+		if err != nil && (status.Code(err) == codes.OK || err.Error() == "password=secret") {
+			t.Fatalf("unsafe status: %v", err)
+		}
 	}
 }
 

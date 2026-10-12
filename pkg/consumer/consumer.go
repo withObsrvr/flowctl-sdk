@@ -226,6 +226,8 @@ func Run(cfg ConsumerConfig) {
 	if err := consumerService.Stop(); err != nil {
 		log.Printf("Error stopping consumer service: %v", err)
 	}
-	grpcServer.GracefulStop()
+	// Force-close blocked Recv calls on shutdown; these RPCs are canceled,
+	// not successful drains. GracefulStop would wait for a client half-close.
+	grpcServer.Stop()
 	log.Printf("%s stopped successfully", config.Consumer.Name)
 }

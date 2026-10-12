@@ -137,7 +137,7 @@ func (s *StandardSource) OnProduceStream(producer ProducerStreamFunc) error {
 }
 
 // Start starts the source
-func (s *StandardSource) Start(ctx context.Context) error {
+func (s *StandardSource) Start(ctx context.Context) (startErr error) {
 	s.mu.Lock()
 	if s.started {
 		s.mu.Unlock()
@@ -149,6 +149,17 @@ func (s *StandardSource) Start(ctx context.Context) error {
 	}
 	s.started = true
 	s.mu.Unlock()
+	defer func() {
+		if startErr != nil {
+			if s.controller != nil {
+				_ = s.controller.Stop()
+			}
+			_ = s.health.Stop()
+			s.mu.Lock()
+			s.started = false
+			s.mu.Unlock()
+		}
+	}()
 
 	// Start health server
 	s.health.SetHealth(flowctl.HealthStatusStarting)

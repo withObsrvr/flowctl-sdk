@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ type StandardHealthServer struct {
 	status         HealthStatus
 	port           int
 	server         *http.Server
+	listener       net.Listener
 	metrics        Metrics
 	startTime      time.Time
 	readinessCheck func() bool
@@ -75,6 +77,15 @@ func (s *StandardHealthServer) SetLivenessCheck(check func() bool) {
 
 // Start starts the health server
 func (s *StandardHealthServer) Start() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.server != nil {
+		return nil
+	}
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	if err != nil {
+		return err
+	}
 	mux := http.NewServeMux()
 
 	// Simple health endpoint - always returns 200 if the server is running
@@ -163,13 +174,15 @@ func (s *StandardHealthServer) Start() error {
 		json.NewEncoder(w).Encode(response)
 	})
 
+	s.listener = listener
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.port),
 		Handler: mux,
 	}
 
+	server := s.server
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("Health server error: %v\n", err)
 		}
 	}()
@@ -180,13 +193,19 @@ func (s *StandardHealthServer) Start() error {
 
 // Stop stops the health server
 func (s *StandardHealthServer) Stop() error {
-	if s.server == nil {
+	s.mu.Lock()
+	server := s.server
+	listener := s.listener
+	s.listener = nil
+	s.server = nil
+	s.status = HealthStatusStopping
+	s.mu.Unlock()
+	if server == nil {
 		return nil
 	}
-
+	// Close the bound socket even if Serve has not yet started.
+	_ = listener.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	s.SetHealth(HealthStatusStopping)
-	return s.server.Shutdown(ctx)
+	return server.Shutdown(ctx)
 }

@@ -106,7 +106,7 @@ func (p *StandardProcessor) OnProcess(
 }
 
 // Start starts the processor
-func (p *StandardProcessor) Start(ctx context.Context) error {
+func (p *StandardProcessor) Start(ctx context.Context) (startErr error) {
 	p.mu.Lock()
 	if p.started {
 		p.mu.Unlock()
@@ -114,6 +114,17 @@ func (p *StandardProcessor) Start(ctx context.Context) error {
 	}
 	p.started = true
 	p.mu.Unlock()
+	defer func() {
+		if startErr != nil {
+			if p.controller != nil {
+				_ = p.controller.Stop()
+			}
+			_ = p.health.Stop()
+			p.mu.Lock()
+			p.started = false
+			p.mu.Unlock()
+		}
+	}()
 
 	// Start health server
 	p.health.SetHealth(flowctl.HealthStatusStarting)
@@ -248,8 +259,7 @@ func (p *StandardProcessor) processAndSend(
 
 	if len(handlers) == 0 {
 		p.metrics.IncrementErrorCount()
-		fmt.Printf("No handler for event type: %s\n", inputEvent.Type)
-		return nil
+		return ErrHandlerNotFound
 	}
 
 	// Use first handler for now (could implement more complex routing)
@@ -264,8 +274,13 @@ func (p *StandardProcessor) processAndSend(
 
 	if err != nil {
 		p.metrics.IncrementErrorCount()
-		fmt.Printf("Error processing event: %v\n", err)
-		return nil
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return fmt.Errorf("processor handler failed")
 	}
 
 	// Skip nil events (processor chose to filter this event)

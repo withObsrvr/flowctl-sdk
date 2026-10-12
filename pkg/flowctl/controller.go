@@ -32,8 +32,8 @@ type StandardController struct {
 	metrics          Metrics
 	healthServer     HealthServer
 
-	mu             sync.RWMutex
-	customMetrics  map[string]interface{}
+	mu            sync.RWMutex
+	customMetrics map[string]interface{}
 }
 
 // NewController creates a new flowctl controller
@@ -47,12 +47,12 @@ func NewController(config Config, metrics Metrics, healthServer HealthServer) *S
 	}
 
 	return &StandardController{
-		config:          config,
-		serviceID:       config.ServiceID,
-		stopHeartbeat:   make(chan struct{}),
-		metrics:         metrics,
-		healthServer:    healthServer,
-		customMetrics:   make(map[string]interface{}),
+		config:        config,
+		serviceID:     config.ServiceID,
+		stopHeartbeat: make(chan struct{}),
+		metrics:       metrics,
+		healthServer:  healthServer,
+		customMetrics: make(map[string]interface{}),
 	}
 }
 
@@ -205,13 +205,6 @@ func (c *StandardController) Start(ctx context.Context) error {
 		return ErrNotRegistered
 	}
 
-	// Start health server
-	if c.healthServer != nil {
-		if err := c.healthServer.Start(); err != nil {
-			return fmt.Errorf("failed to start health server: %w", err)
-		}
-	}
-
 	// Start heartbeat goroutine
 	c.mu.Lock()
 	if !c.heartbeatRunning {
@@ -220,10 +213,6 @@ func (c *StandardController) Start(ctx context.Context) error {
 	}
 	c.mu.Unlock()
 
-	if c.healthServer != nil {
-		c.healthServer.SetHealth(HealthStatusHealthy)
-	}
-
 	return nil
 }
 
@@ -231,14 +220,6 @@ func (c *StandardController) Start(ctx context.Context) error {
 func (c *StandardController) Stop() error {
 	if !c.config.Enabled {
 		return nil
-	}
-
-	// Stop health server
-	if c.healthServer != nil {
-		c.healthServer.SetHealth(HealthStatusStopping)
-		if err := c.healthServer.Stop(); err != nil {
-			fmt.Printf("Error stopping health server: %v\n", err)
-		}
 	}
 
 	// Stop heartbeat
@@ -297,14 +278,14 @@ func (c *StandardController) sendHeartbeat(ctx context.Context) {
 
 	// Collect all metrics
 	allMetrics := make(map[string]interface{})
-	
+
 	// Add standard metrics if available
 	if c.metrics != nil {
 		for k, v := range c.metrics.GetMetrics() {
 			allMetrics[k] = v
 		}
 	}
-	
+
 	// Add custom metrics
 	c.mu.RLock()
 	for k, v := range c.customMetrics {
@@ -313,22 +294,22 @@ func (c *StandardController) sendHeartbeat(ctx context.Context) {
 	c.mu.RUnlock()
 
 	/*
-	// Convert metrics to protobuf format
-	protoMetrics := make(map[string]float64)
-	for k, v := range allMetrics {
-		switch val := v.(type) {
-		case int:
-			protoMetrics[k] = float64(val)
-		case int64:
-			protoMetrics[k] = float64(val)
-		case float32:
-			protoMetrics[k] = float64(val)
-		case float64:
-			protoMetrics[k] = val
-		default:
-			// Skip non-numeric metrics
+		// Convert metrics to protobuf format
+		protoMetrics := make(map[string]float64)
+		for k, v := range allMetrics {
+			switch val := v.(type) {
+			case int:
+				protoMetrics[k] = float64(val)
+			case int64:
+				protoMetrics[k] = float64(val)
+			case float32:
+				protoMetrics[k] = float64(val)
+			case float64:
+				protoMetrics[k] = val
+			default:
+				// Skip non-numeric metrics
+			}
 		}
-	}
 	*/
 
 	// Send heartbeat based on service type
